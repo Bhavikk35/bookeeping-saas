@@ -10,7 +10,7 @@ export async function POST(request: Request) {
     }
 
     const tokenRecord = await createTelegramToken(businessId);
-    const botUsername = process.env.TELEGRAM_BOT_USERNAME || 'UniversalBookkeeperBot';
+    const botUsername = process.env.TELEGRAM_BOT_USERNAME || 'MySaaSBookkeeper_bot';
     const deepLink = `https://t.me/${botUsername}?start=${tokenRecord.token}`;
 
     return NextResponse.json({
