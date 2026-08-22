@@ -11,6 +11,7 @@ interface TenantContextType {
   setCurrentBusiness: (biz: Business) => void;
   setUserSession: (user: Profile, business: Business) => void;
   switchUserRole: (email: string) => void;
+  switchAccountByEmail: (emailInput: string) => void;
   refreshBusinesses: () => Promise<void>;
   loading: boolean;
 }
@@ -22,6 +23,7 @@ const TenantContext = createContext<TenantContextType>({
   setCurrentBusiness: () => {},
   setUserSession: () => {},
   switchUserRole: () => {},
+  switchAccountByEmail: () => {},
   refreshBusinesses: async () => {},
   loading: true,
 });
@@ -193,61 +195,35 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     sessionStorage.setItem('auto_ledger_biz', JSON.stringify(newBiz));
   };
 
-  const switchUserRole = (email: string) => {
-    let newUser: Profile;
-    let newBiz: Business;
+  const switchAccountByEmail = (emailInput: string) => {
+    const cleanEmail = emailInput.trim();
+    if (!cleanEmail) return;
 
-    if (email.includes('metro')) {
-      newUser = {
-        id: 'usr_bbbb2222-2222-2222-2222-222222222222',
-        email: 'owner.b@metroparts.com',
-        name: 'Bhavna Sharma',
-        created_at: new Date().toISOString(),
-      };
-      newBiz = {
-        id: 'biz_bbbb2222-2222-2222-2222-222222222222',
-        owner_id: newUser.id,
-        business_name: 'Metro Auto Parts',
-        business_type: 'Automotive & Spares',
-        currency: 'INR',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-    } else if (email.includes('chai')) {
-      newUser = {
-        id: 'usr_cccc3333-3333-3333-3333-333333333333',
-        email: 'owner.c@chaicafe.com',
-        name: 'Chirag Patel',
-        created_at: new Date().toISOString(),
-      };
-      newBiz = {
-        id: 'biz_cccc3333-3333-3333-3333-333333333333',
-        owner_id: newUser.id,
-        business_name: 'Chai & Snacks Cafe',
-        business_type: 'Restaurant / Cafe',
-        currency: 'INR',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-    } else {
-      newUser = {
-        id: 'usr_aaaa1111-1111-1111-1111-111111111111',
-        email: 'owner.a@greengroceries.com',
-        name: 'Anil Kumar',
-        created_at: new Date().toISOString(),
-      };
-      newBiz = {
-        id: 'biz_aaaa1111-1111-1111-1111-111111111111',
-        owner_id: newUser.id,
-        business_name: 'Fresh Green Groceries',
-        business_type: 'Grocery Store',
-        currency: 'INR',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-    }
+    const slug = cleanEmail.split('@')[0].toLowerCase();
+    const name = slug.charAt(0).toUpperCase() + slug.slice(1);
+
+    const newUser: Profile = {
+      id: `usr_${slug}`,
+      email: cleanEmail.includes('@') ? cleanEmail : `${slug}@workspace.com`,
+      name: name,
+      created_at: new Date().toISOString(),
+    };
+
+    const newBiz: Business = {
+      id: `biz_${slug}`,
+      owner_id: newUser.id,
+      business_name: `${name}'s Business Workspace`,
+      business_type: 'General Business',
+      currency: 'INR',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
 
     setUserSession(newUser, newBiz);
+  };
+
+  const switchUserRole = (email: string) => {
+    switchAccountByEmail(email);
   };
 
   const refreshBusinesses = async () => {
@@ -263,6 +239,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         setCurrentBusiness: handleSetCurrentBusiness,
         setUserSession,
         switchUserRole,
+        switchAccountByEmail,
         refreshBusinesses,
         loading,
       }}
