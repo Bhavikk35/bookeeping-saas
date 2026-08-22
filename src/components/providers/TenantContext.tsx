@@ -37,19 +37,105 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
   const initializeTenantSession = async () => {
     setLoading(true);
     try {
-      // 1. Check Supabase Auth session first
-      const { data: authData } = await supabase.auth.getUser();
-      if (authData?.user) {
-        const uProfile: Profile = {
-          id: authData.user.id,
-          email: authData.user.email || 'user@workspace.com',
-          name: authData.user.user_metadata?.name || authData.user.email?.split('@')[0] || 'Business Owner',
-          created_at: authData.user.created_at,
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlTenantParam = urlParams.get('tenant');
+      const urlBizId = urlParams.get('businessId');
+
+      // 1. Check URL `?tenant=name` parameter (e.g. ?tenant=bhavik)
+      if (urlTenantParam && urlTenantParam.trim().length > 0) {
+        const tenantSlug = urlTenantParam.trim().toLowerCase();
+        const tenantDisplayName = tenantSlug.charAt(0).toUpperCase() + tenantSlug.slice(1);
+
+        const tenantUser: Profile = {
+          id: `usr_tenant_${tenantSlug}`,
+          email: `${tenantSlug}@workspace.com`,
+          name: tenantDisplayName,
+          created_at: new Date().toISOString(),
         };
-        setUser(uProfile);
+
+        const tenantBiz: Business = {
+          id: `biz_tenant_${tenantSlug}`,
+          owner_id: tenantUser.id,
+          business_name: `${tenantDisplayName}'s Business Workspace`,
+          business_type: 'General Business',
+          currency: 'INR',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+
+        setUser(tenantUser);
+        setCurrentBusiness(tenantBiz);
+        setBusinesses([tenantBiz]);
+        sessionStorage.setItem('auto_ledger_user', JSON.stringify(tenantUser));
+        sessionStorage.setItem('auto_ledger_biz', JSON.stringify(tenantBiz));
+        setLoading(false);
+        return;
       }
 
-      // 2. Check SessionStorage for active logged in workspace
+      // 2. Check URL `?businessId=xyz` parameter
+      if (urlBizId && urlBizId.trim().length > 0) {
+        const customBiz: Business = {
+          id: urlBizId,
+          owner_id: 'usr_owner',
+          business_name: 'My Business Workspace',
+          business_type: 'Retail Store',
+          currency: 'INR',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        const customUser: Profile = {
+          id: 'usr_owner',
+          email: 'owner@workspace.com',
+          name: 'Business Owner',
+          created_at: new Date().toISOString(),
+        };
+
+        setUser(customUser);
+        setCurrentBusiness(customBiz);
+        setBusinesses([customBiz]);
+        sessionStorage.setItem('auto_ledger_user', JSON.stringify(customUser));
+        sessionStorage.setItem('auto_ledger_biz', JSON.stringify(customBiz));
+        setLoading(false);
+        return;
+      }
+
+      // 3. Check Supabase Auth session (e.g., Google Auth or Email Login)
+      const { data: authData } = await supabase.auth.getUser();
+      if (authData?.user) {
+        const email = authData.user.email || 'user@workspace.com';
+        const rawName =
+          authData.user.user_metadata?.name ||
+          authData.user.user_metadata?.full_name ||
+          email.split('@')[0];
+        const displayName = rawName.charAt(0).toUpperCase() + rawName.slice(1);
+
+        const authUser: Profile = {
+          id: authData.user.id,
+          email,
+          name: displayName,
+          created_at: authData.user.created_at,
+        };
+
+        const authBiz: Business = {
+          id: `biz_${authData.user.id}`,
+          owner_id: authUser.id,
+          business_name: `${displayName}'s Workspace`,
+          business_type: 'General Business',
+          currency: 'INR',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+
+        setUser(authUser);
+        setCurrentBusiness(authBiz);
+        setBusinesses([authBiz]);
+        sessionStorage.setItem('auto_ledger_user', JSON.stringify(authUser));
+        sessionStorage.setItem('auto_ledger_biz', JSON.stringify(authBiz));
+        setLoading(false);
+        return;
+      }
+
+      // 4. Check SessionStorage for active saved workspace session
       const storedUserJson = sessionStorage.getItem('auto_ledger_user');
       const storedBizJson = sessionStorage.getItem('auto_ledger_biz');
 
@@ -63,31 +149,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // 3. Fallback: Check URL search parameter businessId
-      const urlParams = new URLSearchParams(window.location.search);
-      const urlBizId = urlParams.get('businessId');
-
-      if (urlBizId) {
-        const res = await fetch(`/api/transactions/list?businessId=${urlBizId}`);
-        const data = await res.json();
-        if (data.success && data.transactions) {
-          const customBiz: Business = {
-            id: urlBizId,
-            owner_id: user?.id || 'usr_owner',
-            business_name: 'My Business Workspace',
-            business_type: 'Retail Store',
-            currency: 'INR',
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          };
-          setCurrentBusiness(customBiz);
-          setBusinesses([customBiz]);
-          setLoading(false);
-          return;
-        }
-      }
-
-      // 4. Default Demo Business (only if no custom session exists)
+      // 5. Default Fallback Demo Workspace (only if completely unauthenticated guest)
       const defaultUser: Profile = {
         id: 'usr_aaaa1111-1111-1111-1111-111111111111',
         email: 'owner.a@greengroceries.com',
@@ -104,11 +166,9 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         updated_at: new Date().toISOString(),
       };
 
-      if (!user) setUser(defaultUser);
-      if (!currentBusiness) {
-        setCurrentBusiness(defaultBiz);
-        setBusinesses([defaultBiz]);
-      }
+      setUser(defaultUser);
+      setCurrentBusiness(defaultBiz);
+      setBusinesses([defaultBiz]);
     } catch (err) {
       console.error('Session initialization error:', err);
     } finally {
