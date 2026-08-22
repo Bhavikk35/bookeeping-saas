@@ -31,6 +31,12 @@ export default function IntegrationsPage() {
   const [webhookMsg, setWebhookMsg] = useState<string | null>(null);
   const [isSettingWebhook, setIsSettingWebhook] = useState(false);
 
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setWebhookUrlInput(window.location.origin);
+    }
+  }, []);
+
   const fetchIntegrations = async () => {
     if (!currentBusiness?.id) return;
     setLoading(true);
@@ -108,14 +114,14 @@ export default function IntegrationsPage() {
 
   const handleRegisterWebhook = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!webhookUrlInput) return;
+    const rawUrl = webhookUrlInput || (typeof window !== 'undefined' ? window.location.origin : 'https://bookeeping-saas.netlify.app');
     setIsSettingWebhook(true);
     setWebhookMsg(null);
 
     try {
-      const targetUrl = webhookUrlInput.endsWith('/api/telegram/webhook')
-        ? webhookUrlInput
-        : `${webhookUrlInput.replace(/\/$/, '')}/api/telegram/webhook`;
+      const targetUrl = rawUrl.endsWith('/api/telegram/webhook')
+        ? rawUrl
+        : `${rawUrl.replace(/\/$/, '')}/api/telegram/webhook`;
 
       const res = await fetch('/api/telegram/set-webhook', {
         method: 'POST',
@@ -131,7 +137,7 @@ export default function IntegrationsPage() {
       }
     } catch (err: any) {
       setWebhookMsg(`⚠️ Error: ${err.message}`);
-    } fontally: {
+    } finally {
       setIsSettingWebhook(false);
     }
   };
@@ -188,6 +194,11 @@ export default function IntegrationsPage() {
                     {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
                   </button>
                 </div>
+                {token && (
+                  <p className="text-[10px] text-emerald-400/90 font-mono pt-1">
+                    Or send directly in chat: <span className="bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800 font-bold">/start {token}</span>
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -284,10 +295,9 @@ export default function IntegrationsPage() {
         <form onSubmit={handleRegisterWebhook} className="flex flex-col sm:flex-row items-center gap-3">
           <input
             type="url"
-            required
             value={webhookUrlInput}
             onChange={(e) => setWebhookUrlInput(e.target.value)}
-            placeholder="https://your-domain.vercel.app or https://xxxx.ngrok-free.app"
+            placeholder="https://bookeeping-saas.netlify.app"
             className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 w-full"
           />
           <button

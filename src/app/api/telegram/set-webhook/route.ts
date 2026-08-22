@@ -3,7 +3,10 @@ import { NextResponse } from 'next/server';
 export async function POST(request: Request) {
   try {
     const { webhookUrl } = await request.json();
-    const token = process.env.TELEGRAM_BOT_TOKEN || '8939497312:AAHCyuAhHstCoVqWtOBJtE843Wo9WYo2f3Y';
+    let envToken = (process.env.TELEGRAM_BOT_TOKEN || '').trim().replace(/^["']|["']$/g, '');
+    const token = (!envToken || envToken.includes('demo') || !envToken.includes(':'))
+      ? '8939497312:AAHCyuAhHstCoVqWtOBJtE843Wo9WYo2f3Y'
+      : envToken;
 
     let targetUrl = (webhookUrl || 'https://bookeeping-saas.netlify.app').trim();
     if (!targetUrl.endsWith('/api/telegram/webhook')) {
@@ -29,7 +32,10 @@ export async function POST(request: Request) {
 }
 
 export async function GET() {
-  const token = process.env.TELEGRAM_BOT_TOKEN || '8939497312:AAHCyuAhHstCoVqWtOBJtE843Wo9WYo2f3Y';
+  let envToken = (process.env.TELEGRAM_BOT_TOKEN || '').trim().replace(/^["']|["']$/g, '');
+  const token = (!envToken || envToken.includes('demo') || !envToken.includes(':'))
+    ? '8939497312:AAHCyuAhHstCoVqWtOBJtE843Wo9WYo2f3Y'
+    : envToken;
 
   const telegramRes = await fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`);
   const data = await telegramRes.json();

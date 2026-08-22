@@ -8,7 +8,10 @@ import {
 import { extractTransactionFromNaturalLanguage } from '../ai/transaction-extractor';
 import { syncTransactionToGoogleSheet } from '../google/sheets-service';
 
-const botToken = process.env.TELEGRAM_BOT_TOKEN || '';
+let rawToken = (process.env.TELEGRAM_BOT_TOKEN || '').trim().replace(/^["']|["']$/g, '');
+const botToken = (!rawToken || rawToken.includes('demo') || !rawToken.includes(':'))
+  ? '8939497312:AAHCyuAhHstCoVqWtOBJtE843Wo9WYo2f3Y'
+  : rawToken;
 
 export async function sendTelegramMessage(chatId: string | number, text: string): Promise<boolean> {
   if (!botToken || botToken.includes('demo')) {
