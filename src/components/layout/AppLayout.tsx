@@ -149,47 +149,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           </nav>
         </div>
 
-        {/* Tenant Tester & Account Section */}
+        {/* User Profile & Account Section */}
         <div className="p-4 border-t border-slate-800 space-y-3 bg-slate-900/80">
-          {/* Quick Multi-Tenant Role Switcher for Testing */}
-          <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5 flex items-center gap-1">
-              <ShieldCheck className="w-3 h-3 text-emerald-400" />
-              Tenant Isolation Tester
-            </p>
-            <div className="grid grid-cols-3 gap-1 text-[10px]">
-              <button
-                onClick={() => switchUserRole('owner.a@greengroceries.com')}
-                className={`py-1.5 px-1 rounded font-semibold truncate ${
-                  user?.email.includes('owner.a')
-                    ? 'bg-emerald-500 text-slate-950'
-                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                }`}
-              >
-                Biz A
-              </button>
-              <button
-                onClick={() => switchUserRole('owner.b@metroparts.com')}
-                className={`py-1.5 px-1 rounded font-semibold truncate ${
-                  user?.email.includes('owner.b')
-                    ? 'bg-emerald-500 text-slate-950'
-                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                }`}
-              >
-                Biz B
-              </button>
-              <button
-                onClick={() => switchUserRole('owner.c@chaicafe.com')}
-                className={`py-1.5 px-1 rounded font-semibold truncate ${
-                  user?.email.includes('owner.c')
-                    ? 'bg-emerald-500 text-slate-950'
-                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                }`}
-              >
-                Biz C
-              </button>
-            </div>
-          </div>
 
           {/* User Profile Footer & Sign Out */}
           <div className="flex items-center justify-between pt-1">

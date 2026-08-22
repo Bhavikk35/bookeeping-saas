@@ -264,34 +264,7 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <div className="relative flex py-2 items-center">
-          <div className="flex-grow border-t border-slate-800"></div>
-          <span className="flex-shrink mx-4 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-            Or Quick Access
-          </span>
-          <div className="flex-grow border-t border-slate-800"></div>
-        </div>
 
-        {/* Quick Instant Business Creator Buttons */}
-        <div className="space-y-2">
-          <p className="text-[11px] font-semibold text-slate-400 text-center mb-1">
-            Instantly provision test workspaces:
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={() => handleDemoSignIn('owner.grocer@mandi.com', 'Anil Kumar', 'Green Mandi Groceries')}
-              className="p-2.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-xl text-[11px] font-bold text-slate-300 text-left transition-colors"
-            >
-              🥦 Grocery Workspace
-            </button>
-            <button
-              onClick={() => handleDemoSignIn('owner.auto@spares.com', 'Bhavna Sharma', 'Metro Spares & Oils')}
-              className="p-2.5 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-xl text-[11px] font-bold text-slate-300 text-left transition-colors"
-            >
-              🔧 Auto Spares Workspace
-            </button>
-          </div>
-        </div>
 
         {/* Toggle Login / Signup */}
         <div className="text-center pt-2 border-t border-slate-800">
