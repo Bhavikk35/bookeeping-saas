@@ -11,6 +11,7 @@ import {
 import { extractTransactionFromNaturalLanguage } from '../ai/transaction-extractor';
 import { syncTransactionToGoogleSheet } from '../google/sheets-service';
 import { Business, TelegramConnection } from '../types';
+import { GoogleGenAI } from '@google/genai';
 
 function getTelegramBotToken(): string {
   const envToken = (process.env.TELEGRAM_BOT_TOKEN || '').trim().replace(/^["']|["']$/g, '');
@@ -43,6 +44,31 @@ function resolveActiveTenantWorkspace(): Business {
       updated_at: new Date().toISOString(),
     }
   );
+}
+
+async function transcribeAudioWithGemini(base64Audio: string, mimeType: string): Promise<string | null> {
+  const apiKey = process.env.GEMINI_API_KEY || '';
+  if (!apiKey || apiKey.length < 10) return null;
+
+  try {
+    const aiClient = new GoogleGenAI({ apiKey });
+    const response = await aiClient.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: [
+        {
+          inlineData: {
+            mimeType: mimeType || 'audio/ogg',
+            data: base64Audio,
+          },
+        },
+        'Transcribe the spoken audio into clear text financial transaction string in Hindi/English/Hinglish (e.g. "Aloo bhajiya sold for 50 rupees"). Output ONLY the transcribed transaction text.',
+      ],
+    });
+    return response.text ? response.text.trim() : null;
+  } catch (e) {
+    console.error('Gemini audio transcription error:', e);
+    return null;
+  }
 }
 
 export async function sendTelegramMessage(chatId: string | number, text: string): Promise<boolean> {
@@ -79,7 +105,32 @@ export async function processTelegramWebhookUpdate(update: any): Promise<{ succe
   const chatId = String(message.chat.id);
   const userId = String(message.from?.id || chatId);
   const username = message.from?.username || message.from?.first_name || 'User';
-  const text = message.text?.trim() || '';
+  let text = message.text?.trim() || '';
+
+  // Handle Telegram Voice Messages / Audio Recordings (Mic Input)
+  if (!text && (message.voice || message.audio)) {
+    const voiceObj = message.voice || message.audio;
+    const fileId = voiceObj?.file_id;
+    const botToken = getTelegramBotToken();
+    try {
+      const fileRes = await fetch(`https://api.telegram.org/bot${botToken}/getFile?file_id=${fileId}`);
+      const fileData = await fileRes.json();
+      if (fileData.ok && fileData.result?.file_path) {
+        const audioUrl = `https://api.telegram.org/file/bot${botToken}/${fileData.result.file_path}`;
+        const audioRes = await fetch(audioUrl);
+        const audioArrayBuffer = await audioRes.arrayBuffer();
+        const base64Audio = Buffer.from(audioArrayBuffer).toString('base64');
+
+        const transcribed = await transcribeAudioWithGemini(base64Audio, voiceObj.mime_type || 'audio/ogg');
+        if (transcribed) {
+          text = transcribed;
+          await sendTelegramMessage(chatId, `🎙️ <b>Voice Note Transcribed:</b> <i>"${text}"</i>`);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to process Telegram voice message:', e);
+    }
+  }
 
   // 1. Handle /start <TOKEN> deep linking
   if (text.startsWith('/start')) {
@@ -97,7 +148,7 @@ export async function processTelegramWebhookUpdate(update: any): Promise<{ succe
       const activeMsg =
         `✅ <b>Account Connected!</b>\n\n` +
         `Your Telegram chat is active for <b>${existingBiz?.business_name || "Bhaviksnv's Business Workspace"}</b>.\n\n` +
-        `• Send transactions directly, e.g.: <i>"Daily total counter sale 4500 rupees"</i>\n` +
+        `• Send transactions via text or 🎙️ <b>Voice Notes</b>, e.g.: <i>"Daily total counter sale 4500 rupees"</i>\n` +
         `• Send <b>/history</b> or <b>/today</b> to view today's transaction list in chat!\n` +
         `• Send <b>/summary</b> or <b>/stats</b> to see your financial analytics report!`;
       await sendTelegramMessage(chatId, activeMsg);
@@ -114,7 +165,7 @@ export async function processTelegramWebhookUpdate(update: any): Promise<{ succe
       const confirmMsg =
         `✅ <b>Telegram connected successfully!</b>\n\n` +
         `You are now connected to <b>${business.business_name}</b>.\n\n` +
-        `• Send transaction messages, e.g.: <i>"Aloo bhajiya sold for ₹50"</i>\n` +
+        `• Send text messages or 🎙️ <b>Voice Notes</b>, e.g.: <i>"Aloo bhajiya sold for ₹50"</i>\n` +
         `• Type <b>/history</b> to view your daily transaction log!\n` +
         `• Type <b>/summary</b> or <b>/stats</b> to view analytics!`;
       await sendTelegramMessage(chatId, confirmMsg);
@@ -130,7 +181,7 @@ export async function processTelegramWebhookUpdate(update: any): Promise<{ succe
       const alreadyConnectedMsg =
         `✅ <b>Telegram Connected!</b>\n\n` +
         `Your Telegram chat is active for <b>${existingBiz?.business_name || "Bhaviksnv's Business Workspace"}</b>.\n\n` +
-        `• Send transactions directly, e.g.: <i>"Aloo sold for ₹50"</i>\n` +
+        `• Send text or 🎙️ <b>Voice Notes</b> directly, e.g.: <i>"Aloo sold for ₹50"</i>\n` +
         `• Type <b>/history</b> to see today's transactions list!\n` +
         `• Type <b>/summary</b> or <b>/stats</b> to see your analytics report!`;
       await sendTelegramMessage(chatId, alreadyConnectedMsg);
@@ -205,7 +256,7 @@ export async function processTelegramWebhookUpdate(update: any): Promise<{ succe
           `📅 <b>Daily Transaction History (${todayStr})</b>\n` +
           `<i>Workspace: ${biz.business_name}</i>\n\n` +
           `ℹ️ No transactions recorded today yet.\n\n` +
-          `• Send a message like <i>"Aloo sold for ₹50"</i> to record your first transaction today!`;
+          `• Send a text or 🎙️ <b>Voice Note</b> like <i>"Aloo sold for ₹50"</i> to record your first transaction today!`;
         await sendTelegramMessage(chatId, emptyMsg);
         return { success: true, responseMessage: 'Sent empty history response.' };
       }
@@ -257,6 +308,12 @@ export async function processTelegramWebhookUpdate(update: any): Promise<{ succe
 
   const business = (await getBusiness(connection.business_id)) || resolveActiveTenantWorkspace();
   const currency = business.currency || 'INR';
+
+  if (!text) {
+    const promptMsg = `💬 Please send a transaction text message or hold the mic button to record a 🎙️ <b>Voice Note</b> (e.g. <i>"Aloo sold for ₹50"</i>).`;
+    await sendTelegramMessage(chatId, promptMsg);
+    return { success: true, responseMessage: 'Sent voice/text prompt.' };
+  }
 
   // 3. AI Transaction Extraction Pipeline
   const extraction = await extractTransactionFromNaturalLanguage(text, currency);
