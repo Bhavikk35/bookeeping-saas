@@ -4,6 +4,7 @@ import {
   getTelegramConnectionByChatId,
   getBusiness,
   addTransaction,
+  getBusinessTransactions,
   getBusinessFinancialMetrics,
   inMemoryDB,
 } from '../db';
@@ -97,7 +98,8 @@ export async function processTelegramWebhookUpdate(update: any): Promise<{ succe
         `✅ <b>Account Connected!</b>\n\n` +
         `Your Telegram chat is active for <b>${existingBiz?.business_name || "Bhaviksnv's Business Workspace"}</b>.\n\n` +
         `• Send transactions directly, e.g.: <i>"Daily total counter sale 4500 rupees"</i>\n` +
-        `• Send <b>/summary</b> or <b>/stats</b> to see your live report directly in chat!`;
+        `• Send <b>/history</b> or <b>/today</b> to view today's transaction list in chat!\n` +
+        `• Send <b>/summary</b> or <b>/stats</b> to see your financial analytics report!`;
       await sendTelegramMessage(chatId, activeMsg);
       return { success: true, responseMessage: 'Active chat confirmed.' };
     }
@@ -113,7 +115,8 @@ export async function processTelegramWebhookUpdate(update: any): Promise<{ succe
         `✅ <b>Telegram connected successfully!</b>\n\n` +
         `You are now connected to <b>${business.business_name}</b>.\n\n` +
         `• Send transaction messages, e.g.: <i>"Aloo bhajiya sold for ₹50"</i>\n` +
-        `• Type <b>/summary</b> or <b>/stats</b> anytime to view analytics directly in chat!`;
+        `• Type <b>/history</b> to view your daily transaction log!\n` +
+        `• Type <b>/summary</b> or <b>/stats</b> to view analytics!`;
       await sendTelegramMessage(chatId, confirmMsg);
       return { success: true, responseMessage: `Connected Telegram chat ${chatId} to business ${business.id}` };
     } catch (err: any) {
@@ -128,14 +131,16 @@ export async function processTelegramWebhookUpdate(update: any): Promise<{ succe
         `✅ <b>Telegram Connected!</b>\n\n` +
         `Your Telegram chat is active for <b>${existingBiz?.business_name || "Bhaviksnv's Business Workspace"}</b>.\n\n` +
         `• Send transactions directly, e.g.: <i>"Aloo sold for ₹50"</i>\n` +
+        `• Type <b>/history</b> to see today's transactions list!\n` +
         `• Type <b>/summary</b> or <b>/stats</b> to see your analytics report!`;
       await sendTelegramMessage(chatId, alreadyConnectedMsg);
       return { success: true, responseMessage: 'Chat connection ensured.' };
     }
   }
 
-  // 1.5 Handle Telegram Analytics / Summary Commands (/summary, /stats, /analytics, /report, "summary")
   const lowerText = text.toLowerCase();
+
+  // 1.5 Handle Telegram Analytics / Summary Commands (/summary, /stats, /analytics, /report, "summary")
   if (
     lowerText.startsWith('/summary') ||
     lowerText.startsWith('/stats') ||
@@ -153,7 +158,7 @@ export async function processTelegramWebhookUpdate(update: any): Promise<{ succe
     }
 
     if (connection) {
-      const biz = await getBusiness(connection.business_id) || resolveActiveTenantWorkspace();
+      const biz = (await getBusiness(connection.business_id)) || resolveActiveTenantWorkspace();
       const metrics = await getBusinessFinancialMetrics(biz.id);
       const cur = biz.currency === 'USD' ? '$' : '₹';
 
@@ -170,6 +175,76 @@ export async function processTelegramWebhookUpdate(update: any): Promise<{ succe
 
       await sendTelegramMessage(chatId, statsMsg);
       return { success: true, responseMessage: 'Sent financial analytics summary to Telegram.' };
+    }
+  }
+
+  // 1.6 Handle Daily Transaction History Commands (/history, /today, /list, "history")
+  if (
+    lowerText.startsWith('/history') ||
+    lowerText.startsWith('/today') ||
+    lowerText.startsWith('/list') ||
+    lowerText.includes('history') ||
+    lowerText.includes('today transactions') ||
+    lowerText === 'today'
+  ) {
+    let connection = await getTelegramConnectionByChatId(chatId);
+    if (!connection) {
+      const targetBiz = resolveActiveTenantWorkspace();
+      connection = await createTelegramConnection(targetBiz.id, userId, chatId, username);
+    }
+
+    if (connection) {
+      const biz = (await getBusiness(connection.business_id)) || resolveActiveTenantWorkspace();
+      const todayStr = new Date().toISOString().split('T')[0];
+      const allTxs = await getBusinessTransactions(biz.id);
+      const todayTxs = allTxs.filter((t) => t.transaction_date === todayStr);
+      const cur = biz.currency === 'USD' ? '$' : '₹';
+
+      if (todayTxs.length === 0) {
+        const emptyMsg =
+          `📅 <b>Daily Transaction History (${todayStr})</b>\n` +
+          `<i>Workspace: ${biz.business_name}</i>\n\n` +
+          `ℹ️ No transactions recorded today yet.\n\n` +
+          `• Send a message like <i>"Aloo sold for ₹50"</i> to record your first transaction today!`;
+        await sendTelegramMessage(chatId, emptyMsg);
+        return { success: true, responseMessage: 'Sent empty history response.' };
+      }
+
+      let txListStr = '';
+      let todaySalesSum = 0;
+      let todayExpenseSum = 0;
+
+      todayTxs.forEach((t, index) => {
+        const amt = Number(t.amount) || 0;
+        const icon =
+          t.transaction_type === 'sale'
+            ? '📈 Sale'
+            : t.transaction_type === 'expense'
+            ? '📉 Expense'
+            : t.transaction_type === 'purchase'
+            ? '🛒 Purchase'
+            : '💳 Tx';
+
+        if (t.transaction_type === 'sale') todaySalesSum += amt;
+        if (t.transaction_type === 'expense' || t.transaction_type === 'purchase') todayExpenseSum += amt;
+
+        txListStr += `${index + 1}. ${icon}: <b>${t.item}</b> — ${cur}${amt} <i>(${t.category})</i>\n`;
+      });
+
+      const netCash = todaySalesSum - todayExpenseSum;
+
+      const historyMsg =
+        `📅 <b>Daily Transaction History (${todayStr})</b>\n` +
+        `<i>Workspace: ${biz.business_name}</i>\n\n` +
+        txListStr +
+        `\n───────────────\n` +
+        `💰 <b>Today's Sales:</b> ${cur}${todaySalesSum}\n` +
+        `📉 <b>Today's Expenses:</b> ${cur}${todayExpenseSum}\n` +
+        `💵 <b>Net Cash Flow:</b> ${cur}${netCash}\n\n` +
+        `🌐 <i>View full interactive table at https://bookeeping-sas.netlify.app/dashboard</i>`;
+
+      await sendTelegramMessage(chatId, historyMsg);
+      return { success: true, responseMessage: 'Sent daily transaction history to Telegram.' };
     }
   }
 
@@ -239,7 +314,7 @@ export async function processTelegramWebhookUpdate(update: any): Promise<{ succe
     `• <b>Amount:</b> ${savedTx.currency === 'INR' ? '₹' : '$'}${savedTx.amount}\n` +
     `• <b>Category:</b> ${savedTx.category}\n` +
     `• <b>Workspace:</b> ${business.business_name}\n\n` +
-    `<i>Synced to Google Sheets & Web Dashboard in real-time. Type <b>/summary</b> for analytics.</i>`;
+    `<i>Synced to Google Sheets & Web Dashboard in real-time. Type <b>/history</b> for daily log or <b>/summary</b> for stats.</i>`;
 
   await sendTelegramMessage(chatId, confirmMessage);
 
