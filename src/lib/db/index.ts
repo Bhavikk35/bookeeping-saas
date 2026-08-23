@@ -81,88 +81,40 @@ class InMemoryStore {
   }
 
   private seedDemoData() {
-    // Business A: Fresh Green Groceries (User A)
-    const userA: Profile = {
-      id: 'usr_aaaa1111-1111-1111-1111-111111111111',
-      email: 'owner.a@greengroceries.com',
-      name: 'Anil Kumar',
-      created_at: new Date(Date.now() - 30 * 86400000).toISOString(),
-    };
-    const bizA: Business = {
-      id: 'biz_aaaa1111-1111-1111-1111-111111111111',
-      owner_id: userA.id,
-      business_name: 'Fresh Green Groceries',
-      business_type: 'Grocery Store',
-      currency: 'INR',
-      created_at: new Date(Date.now() - 30 * 86400000).toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    const memberA: BusinessMember = {
-      id: 'mem_a',
-      business_id: bizA.id,
-      user_id: userA.id,
-      role: 'owner',
-      created_at: bizA.created_at,
-    };
-
-    // Business B: Metro Auto Parts (User B)
-    const userB: Profile = {
-      id: 'usr_bbbb2222-2222-2222-2222-222222222222',
-      email: 'owner.b@metroparts.com',
+    // Primary User Workspace: Bhaviksnv's Business Workspace
+    const userBhavik: Profile = {
+      id: 'usr_tenant_bhavik',
+      email: 'owner.bhavik@autoledger.com',
       name: 'Bhavna Sharma',
-      created_at: new Date(Date.now() - 20 * 86400000).toISOString(),
+      created_at: new Date(Date.now() - 30 * 86400000).toISOString(),
     };
-    const bizB: Business = {
-      id: 'biz_bbbb2222-2222-2222-2222-222222222222',
-      owner_id: userB.id,
-      business_name: 'Metro Auto Parts',
-      business_type: 'Automotive & Spares',
+    const bizBhavik: Business = {
+      id: 'biz_tenant_bhavik',
+      owner_id: userBhavik.id,
+      business_name: "Bhaviksnv's Business Workspace",
+      business_type: 'General Business',
       currency: 'INR',
-      created_at: new Date(Date.now() - 20 * 86400000).toISOString(),
+      created_at: new Date(Date.now() - 30 * 86400000).toISOString(),
       updated_at: new Date().toISOString(),
     };
-    const memberB: BusinessMember = {
-      id: 'mem_b',
-      business_id: bizB.id,
-      user_id: userB.id,
+    const memberBhavik: BusinessMember = {
+      id: 'mem_bhavik',
+      business_id: bizBhavik.id,
+      user_id: userBhavik.id,
       role: 'owner',
-      created_at: bizB.created_at,
+      created_at: bizBhavik.created_at,
     };
 
-    // Business C: Chai & Snacks Cafe (User C)
-    const userC: Profile = {
-      id: 'usr_cccc3333-3333-3333-3333-333333333333',
-      email: 'owner.c@chaicafe.com',
-      name: 'Chirag Patel',
-      created_at: new Date(Date.now() - 10 * 86400000).toISOString(),
-    };
-    const bizC: Business = {
-      id: 'biz_cccc3333-3333-3333-3333-333333333333',
-      owner_id: userC.id,
-      business_name: 'Chai & Snacks Cafe',
-      business_type: 'Restaurant / Cafe',
-      currency: 'INR',
-      created_at: new Date(Date.now() - 10 * 86400000).toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    const memberC: BusinessMember = {
-      id: 'mem_c',
-      business_id: bizC.id,
-      user_id: userC.id,
-      role: 'owner',
-      created_at: bizC.created_at,
-    };
-
-    [userA, userB, userC].forEach((u) => this.profiles.set(u.id, u));
-    [bizA, bizB, bizC].forEach((b) => this.businesses.set(b.id, b));
-    [memberA, memberB, memberC].forEach((m) => this.members.set(m.id, m));
+    this.profiles.set(userBhavik.id, userBhavik);
+    this.businesses.set(bizBhavik.id, bizBhavik);
+    this.members.set(memberBhavik.id, memberBhavik);
 
     const tgConnA: TelegramConnection = {
       id: 'tg_conn_a',
-      business_id: bizA.id,
+      business_id: bizBhavik.id,
       telegram_user_id: '100001',
       telegram_chat_id: '900001',
-      telegram_username: 'anil_grocer',
+      telegram_username: 'bhavik_user',
       connected_at: new Date().toISOString(),
       status: 'active',
       last_message_at: new Date().toISOString(),
@@ -171,8 +123,8 @@ class InMemoryStore {
 
     const googA: GoogleConnection = {
       id: 'goog_conn_a',
-      business_id: bizA.id,
-      google_user_id: 'google_user_anil',
+      business_id: bizBhavik.id,
+      google_user_id: 'google_user_bhavik',
       spreadsheet_id: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms',
       spreadsheet_url: 'https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit',
       access_token: 'mock_access_token_a',
@@ -181,14 +133,14 @@ class InMemoryStore {
       connected_at: new Date().toISOString(),
       status: 'active',
     };
-    this.googleConnections.set(bizA.id, googA);
+    this.googleConnections.set(bizBhavik.id, googA);
 
     const todayStr = new Date().toISOString().split('T')[0];
     const sampleTxA: Transaction[] = [
       {
         id: 'tx_a1',
-        business_id: bizA.id,
-        created_by: userA.id,
+        business_id: bizBhavik.id,
+        created_by: userBhavik.id,
         telegram_connection_id: tgConnA.id,
         transaction_type: 'sale',
         amount: 50,
@@ -207,8 +159,8 @@ class InMemoryStore {
       },
       {
         id: 'tx_a2',
-        business_id: bizA.id,
-        created_by: userA.id,
+        business_id: bizBhavik.id,
+        created_by: userBhavik.id,
         telegram_connection_id: tgConnA.id,
         transaction_type: 'expense',
         amount: 400,

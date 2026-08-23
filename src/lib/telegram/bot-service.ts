@@ -21,17 +21,20 @@ function getTelegramBotToken(): string {
 
 function resolveActiveTenantWorkspace(): Business {
   const allBizs = Array.from(inMemoryDB.businesses.values()) as Business[];
-  const tenantBiz =
-    allBizs.find(
-      (b) => !b.id.includes('aaaa1111') && !b.id.includes('bbbb2222') && !b.id.includes('cccc3333')
-    ) ||
-    allBizs.find((b) => b.business_name.toLowerCase().includes('bhavik')) ||
-    allBizs[allBizs.length - 1];
+  const bhavikBiz = allBizs.find(
+    (b) => b.business_name.toLowerCase().includes('bhavik') || b.id.includes('bhavik')
+  );
+  if (bhavikBiz) return bhavikBiz;
+
+  const tenantBiz = allBizs.find(
+    (b) => !b.id.includes('aaaa1111') && !b.id.includes('bbbb2222') && !b.id.includes('cccc3333')
+  );
+  if (tenantBiz) return tenantBiz;
 
   return (
-    tenantBiz || {
-      id: 'biz_aaaa1111-1111-1111-1111-111111111111',
-      owner_id: 'usr_aaaa1111-1111-1111-1111-111111111111',
+    allBizs[0] || {
+      id: 'biz_tenant_bhavik',
+      owner_id: 'usr_tenant_bhavik',
       business_name: "Bhaviksnv's Business Workspace",
       business_type: 'General Business',
       currency: 'INR',
