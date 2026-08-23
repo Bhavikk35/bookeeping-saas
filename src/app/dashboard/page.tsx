@@ -32,12 +32,22 @@ export default function DashboardOverviewPage() {
 
   const fetchDashboardData = async (bizId: string) => {
     setLoading(true);
+
+    const cacheKey = `autoledger_txs_${bizId}`;
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      try {
+        setTransactions(JSON.parse(cached));
+      } catch (e) {}
+    }
+
     try {
       const res = await fetch(`/api/transactions/list?businessId=${bizId}`);
       const data = await res.json();
       if (data.success) {
         setTransactions(data.transactions);
         setMetrics(data.metrics);
+        localStorage.setItem(cacheKey, JSON.stringify(data.transactions));
       }
     } catch (err) {
       console.error('Error loading dashboard data:', err);

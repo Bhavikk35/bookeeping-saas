@@ -133,53 +133,6 @@ class InMemoryStore {
       connected_at: new Date().toISOString(),
       status: 'active',
     };
-    this.googleConnections.set(bizBhavik.id, googA);
-
-    const todayStr = new Date().toISOString().split('T')[0];
-    const sampleTxA: Transaction[] = [
-      {
-        id: 'tx_a1',
-        business_id: bizBhavik.id,
-        created_by: userBhavik.id,
-        telegram_connection_id: tgConnA.id,
-        transaction_type: 'sale',
-        amount: 50,
-        currency: 'INR',
-        item: 'Aloo Bhajiya',
-        quantity: 1,
-        category: 'Food',
-        customer_name: 'Walk-in Customer',
-        supplier_name: null,
-        payment_status: 'paid',
-        description: 'Aloo bhajiya sold for ₹50',
-        transaction_date: todayStr,
-        source: 'telegram',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-      {
-        id: 'tx_a2',
-        business_id: bizBhavik.id,
-        created_by: userBhavik.id,
-        telegram_connection_id: tgConnA.id,
-        transaction_type: 'expense',
-        amount: 400,
-        currency: 'INR',
-        item: 'Potatoes',
-        quantity: 10,
-        category: 'Supplies',
-        customer_name: null,
-        supplier_name: 'Local Wholesale Mandi',
-        payment_status: 'paid',
-        description: 'Bought 10 kg potatoes for ₹400',
-        transaction_date: todayStr,
-        source: 'telegram',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-    ];
-
-    sampleTxA.forEach((tx) => this.transactions.set(tx.id, tx));
   }
 }
 

@@ -43,11 +43,21 @@ export default function TransactionsPage() {
   const loadTransactions = async () => {
     if (!currentBusiness?.id) return;
     setLoading(true);
+
+    const cacheKey = `autoledger_txs_${currentBusiness.id}`;
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      try {
+        setTransactions(JSON.parse(cached));
+      } catch (e) {}
+    }
+
     try {
       const res = await fetch(`/api/transactions/list?businessId=${currentBusiness.id}`);
       const data = await res.json();
-      if (data.success) {
+      if (data.success && data.transactions) {
         setTransactions(data.transactions);
+        localStorage.setItem(cacheKey, JSON.stringify(data.transactions));
       }
     } catch (err) {
       console.error('Error loading transactions:', err);
