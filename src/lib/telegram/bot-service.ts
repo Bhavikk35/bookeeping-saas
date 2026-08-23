@@ -8,19 +8,12 @@ import {
 import { extractTransactionFromNaturalLanguage } from '../ai/transaction-extractor';
 import { syncTransactionToGoogleSheet } from '../google/sheets-service';
 
-const REAL_BOT_TOKEN = '8939497312:AAHCyuAhHstCoVqWtOBJtE843Wo9WYo2f3Y';
-
-function getValidBotToken(): string {
-  const envToken = (process.env.TELEGRAM_BOT_TOKEN || '').trim().replace(/^["']|["']$/g, '');
-  if (envToken && envToken.includes(':') && !envToken.includes('demo') && envToken.length > 30) {
-    return envToken;
-  }
-  return REAL_BOT_TOKEN;
+function getTelegramBotToken(): string {
+  return (process.env.TELEGRAM_BOT_TOKEN || '').trim().replace(/^["']|["']$/g, '');
 }
 
-const botToken = getValidBotToken();
-
 export async function sendTelegramMessage(chatId: string | number, text: string): Promise<boolean> {
+  const botToken = getTelegramBotToken();
   if (!botToken || botToken.includes('demo')) {
     console.log(`[Telegram Bot Output to Chat ${chatId}]:\n${text}`);
     return true;
