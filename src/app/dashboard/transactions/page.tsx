@@ -45,19 +45,29 @@ export default function TransactionsPage() {
     setLoading(true);
 
     const cacheKey = `autoledger_txs_${currentBusiness.id}`;
+    let localTxs: Transaction[] = [];
+
     const cached = localStorage.getItem(cacheKey);
     if (cached) {
       try {
-        setTransactions(JSON.parse(cached));
+        localTxs = JSON.parse(cached);
+        setTransactions(localTxs);
       } catch (e) {}
     }
 
     try {
       const res = await fetch(`/api/transactions/list?businessId=${currentBusiness.id}`);
       const data = await res.json();
-      if (data.success && data.transactions) {
-        setTransactions(data.transactions);
-        localStorage.setItem(cacheKey, JSON.stringify(data.transactions));
+      if (data.success && Array.isArray(data.transactions)) {
+        const map = new Map<string, Transaction>();
+        localTxs.forEach((t) => map.set(t.id, t));
+        data.transactions.forEach((t: Transaction) => map.set(t.id, t));
+        const merged = Array.from(map.values()).sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+
+        setTransactions(merged);
+        localStorage.setItem(cacheKey, JSON.stringify(merged));
       }
     } catch (err) {
       console.error('Error loading transactions:', err);
@@ -70,9 +80,9 @@ export default function TransactionsPage() {
     loadTransactions();
   }, [currentBusiness?.id]);
 
-  const handleManualAddSubmit = async (e: React.FormEvent) => {
+  const handleManualAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentBusiness?.id || !formData.item || !formData.amount) return;
+    if (!formData.item || !formData.amount) return;
     setIsSubmitting(true);
 
     try {
@@ -80,13 +90,30 @@ export default function TransactionsPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          businessId: currentBusiness.id,
-          ...formData,
+          business_id: currentBusiness?.id || 'biz_tenant_bhavik',
+          transaction_type: formData.transaction_type,
+          amount: parseFloat(formData.amount),
+          currency: currentBusiness?.currency || 'INR',
+          item: formData.item,
+          quantity: parseInt(formData.quantity) || 1,
+          category: formData.category,
+          customer_name: formData.customer_name || undefined,
+          supplier_name: formData.supplier_name || undefined,
+          payment_status: formData.payment_status,
+          description: formData.description,
+          transaction_date: new Date().toISOString().split('T')[0],
+          source: 'web_manual',
         }),
       });
 
       const data = await res.json();
-      if (data.success) {
+      if (data.success && data.transaction) {
+        const newTx = data.transaction;
+        const cacheKey = `autoledger_txs_${currentBusiness?.id || 'biz_tenant_bhavik'}`;
+        const updatedList = [newTx, ...transactions];
+        setTransactions(updatedList);
+        localStorage.setItem(cacheKey, JSON.stringify(updatedList));
+
         setModalOpen(false);
         setFormData({
           transaction_type: 'sale',
@@ -99,169 +126,155 @@ export default function TransactionsPage() {
           payment_status: 'paid',
           description: '',
         });
-        loadTransactions();
-      } else {
-        alert(data.error || 'Failed to record transaction.');
       }
-    } catch (err: any) {
-      alert(err.message || 'Error recording transaction.');
+    } catch (err) {
+      console.error('Error adding transaction manually:', err);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // Filter Transactions
-  const filtered = transactions.filter((tx) => {
-    if (selectedType !== 'all' && tx.transaction_type !== selectedType) return false;
-    if (selectedCategory !== 'all' && tx.category.toLowerCase() !== selectedCategory.toLowerCase()) return false;
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      const matchItem = tx.item.toLowerCase().includes(q);
-      const matchCat = tx.category.toLowerCase().includes(q);
-      const matchDesc = tx.description?.toLowerCase().includes(q);
-      if (!matchItem && !matchCat && !matchDesc) return false;
-    }
-    return true;
+  // Filter Logic
+  const filteredTransactions = transactions.filter((tx) => {
+    const matchesType = selectedType === 'all' || tx.transaction_type === selectedType;
+    const matchesCategory =
+      selectedCategory === 'all' || tx.category.toLowerCase() === selectedCategory.toLowerCase();
+    const matchesSearch =
+      searchQuery === '' ||
+      tx.item.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      tx.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (tx.description && tx.description.toLowerCase().includes(searchQuery.toLowerCase()));
+
+    return matchesType && matchesCategory && matchesSearch;
   });
 
-  const symbol = currentBusiness?.currency === 'INR' ? '₹' : '$';
+  const categories = Array.from(new Set(transactions.map((t) => t.category)));
 
   return (
     <div className="space-y-6">
-      {/* Top Header Bar */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      {/* Header Controls */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h3 className="text-xl font-extrabold text-white tracking-tight">Transaction History</h3>
-          <p className="text-xs text-slate-400">
-            Isolated financial ledger for {currentBusiness?.business_name}
+          <h2 className="text-2xl font-bold text-white tracking-tight">Transaction History</h2>
+          <p className="text-slate-400 text-xs mt-1">
+            Isolated financial ledger for <span className="text-emerald-400 font-medium">{currentBusiness?.business_name}</span>
           </p>
         </div>
 
         <button
           onClick={() => setModalOpen(true)}
-          className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/20"
+          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-sm rounded-xl transition-all shadow-lg shadow-emerald-500/20"
         >
-          <PlusCircle className="w-4 h-4" /> Add Transaction
+          <PlusCircle className="w-4 h-4" />
+          Add Transaction
         </button>
       </div>
 
-      {/* Filter Toolbar */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col md:flex-row items-center justify-between gap-4">
-        <div className="flex items-center gap-2 w-full md:w-auto">
-          <div className="relative flex-1 md:w-64">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search items or categories..."
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-            />
-          </div>
+      {/* Filter Bar */}
+      <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl p-4 flex flex-col md:flex-row items-center justify-between gap-4 backdrop-blur-md">
+        <div className="relative w-full md:w-80">
+          <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-500" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search items or categories..."
+            className="w-full pl-10 pr-4 py-2 bg-slate-950/80 border border-slate-800 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+          />
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-          {/* Type Filter */}
+        <div className="flex items-center gap-3 w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
           <select
             value={selectedType}
             onChange={(e) => setSelectedType(e.target.value)}
-            className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-emerald-500"
+            className="px-3 py-2 bg-slate-950/80 border border-slate-800 rounded-lg text-xs font-medium text-slate-300 focus:outline-none focus:border-emerald-500"
           >
             <option value="all">All Types</option>
-            <option value="sale">Sale</option>
-            <option value="expense">Expense</option>
-            <option value="purchase">Purchase</option>
-            <option value="money_received">Money Received</option>
-            <option value="money_paid">Money Paid</option>
-            <option value="receivable">Receivable</option>
-            <option value="payable">Payable</option>
+            <option value="sale">Sales</option>
+            <option value="expense">Expenses</option>
+            <option value="purchase">Purchases</option>
+            <option value="receivable">Receivables</option>
+            <option value="payable">Payables</option>
           </select>
 
-          {/* Category Filter */}
           <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-emerald-500"
+            className="px-3 py-2 bg-slate-950/80 border border-slate-800 rounded-lg text-xs font-medium text-slate-300 focus:outline-none focus:border-emerald-500"
           >
             <option value="all">All Categories</option>
-            <option value="Food">Food & Beverage</option>
-            <option value="Supplies">Supplies & Inventory</option>
-            <option value="Utilities">Utilities</option>
-            <option value="General">General</option>
+            {categories.map((cat) => (
+              <option key={cat} value={cat}>
+                {cat}
+              </option>
+            ))}
           </select>
         </div>
       </div>
 
       {/* Transactions Table */}
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-sm">
-        {loading ? (
-          <div className="py-16 text-center text-xs text-slate-500">Loading ledger data...</div>
-        ) : filtered.length === 0 ? (
-          <div className="py-16 text-center text-xs text-slate-500">
-            No transactions match the selected filters.
+      <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl overflow-hidden backdrop-blur-md">
+        {loading && transactions.length === 0 ? (
+          <div className="p-12 text-center text-slate-400 text-sm">Loading transactions...</div>
+        ) : filteredTransactions.length === 0 ? (
+          <div className="p-16 text-center">
+            <Receipt className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+            <p className="text-slate-300 font-medium">No transactions match your search</p>
+            <p className="text-slate-500 text-xs mt-1">Try resetting filters or adding a new transaction.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider">
-                  <th className="py-3 px-3">Date</th>
-                  <th className="py-3 px-3">Type</th>
-                  <th className="py-3 px-3">Item</th>
-                  <th className="py-3 px-3">Qty</th>
-                  <th className="py-3 px-3">Category</th>
-                  <th className="py-3 px-3">Party</th>
-                  <th className="py-3 px-3 text-right">Amount</th>
-                  <th className="py-3 px-3 text-center">Status</th>
-                  <th className="py-3 px-3 text-center">Source</th>
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-950/60 text-slate-400 text-xs font-semibold uppercase tracking-wider border-b border-slate-800/80">
+                <tr>
+                  <th className="py-3.5 px-4">Date</th>
+                  <th className="py-3.5 px-4">Type</th>
+                  <th className="py-3.5 px-4">Item</th>
+                  <th className="py-3.5 px-4">Qty</th>
+                  <th className="py-3.5 px-4">Category</th>
+                  <th className="py-3.5 px-4">Party</th>
+                  <th className="py-3.5 px-4 text-right">Amount</th>
+                  <th className="py-3.5 px-4">Status</th>
+                  <th className="py-3.5 px-4 text-center">Source</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/60 font-medium">
-                {filtered.map((tx) => (
-                  <tr key={tx.id} className="hover:bg-slate-800/40 transition-colors">
-                    <td className="py-3.5 px-3 text-slate-300 whitespace-nowrap">{tx.transaction_date}</td>
-                    <td className="py-3.5 px-3">
+              <tbody className="divide-y divide-slate-800/60">
+                {filteredTransactions.map((tx) => (
+                  <tr key={tx.id} className="hover:bg-slate-800/30 transition-colors">
+                    <td className="py-4 px-4 font-mono text-xs text-slate-300 whitespace-nowrap">
+                      {tx.transaction_date}
+                    </td>
+                    <td className="py-4 px-4 whitespace-nowrap">
                       <span
-                        className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${
+                        className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide ${
                           tx.transaction_type === 'sale'
                             ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                            : tx.transaction_type === 'expense' || tx.transaction_type === 'purchase'
-                            ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                            : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                            : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
                         }`}
                       >
-                        {tx.transaction_type.replace('_', ' ')}
+                        {tx.transaction_type}
                       </span>
                     </td>
-                    <td className="py-3.5 px-3 text-white font-semibold">{tx.item}</td>
-                    <td className="py-3.5 px-3 text-slate-400">{tx.quantity}</td>
-                    <td className="py-3.5 px-3 text-slate-400">{tx.category}</td>
-                    <td className="py-3.5 px-3 text-slate-300">
+                    <td className="py-4 px-4 font-semibold text-white">{tx.item}</td>
+                    <td className="py-4 px-4 font-mono text-xs text-slate-400">{tx.quantity || 1}</td>
+                    <td className="py-4 px-4 text-xs text-slate-300">{tx.category}</td>
+                    <td className="py-4 px-4 text-xs text-slate-400">
                       {tx.customer_name || tx.supplier_name || '-'}
                     </td>
-                    <td className="py-3.5 px-3 text-right font-bold text-white whitespace-nowrap">
-                      {symbol}{tx.amount}
+                    <td
+                      className={`py-4 px-4 text-right font-bold font-mono whitespace-nowrap ${
+                        tx.transaction_type === 'sale' ? 'text-emerald-400' : 'text-white'
+                      }`}
+                    >
+                      ₹{Number(tx.amount).toLocaleString('en-IN')}
                     </td>
-                    <td className="py-3.5 px-3 text-center">
-                      <span
-                        className={`inline-block px-2 py-0.5 rounded text-[10px] uppercase font-bold ${
-                          tx.payment_status === 'paid'
-                            ? 'bg-emerald-500/10 text-emerald-400'
-                            : 'bg-amber-500/10 text-amber-400'
-                        }`}
-                      >
+                    <td className="py-4 px-4 whitespace-nowrap">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-medium uppercase bg-emerald-500/10 text-emerald-400">
                         {tx.payment_status}
                       </span>
                     </td>
-                    <td className="py-3.5 px-3 text-center">
-                      <span
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] ${
-                          tx.source === 'telegram'
-                            ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20'
-                            : 'bg-slate-800 text-slate-300'
-                        }`}
-                      >
-                        {tx.source === 'telegram' ? <Send className="w-3 h-3" /> : <Receipt className="w-3 h-3" />}
+                    <td className="py-4 px-4 text-center whitespace-nowrap">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-800 text-slate-300 border border-slate-700">
                         {tx.source}
                       </span>
                     </td>
@@ -273,100 +286,97 @@ export default function TransactionsPage() {
         )}
       </div>
 
-      {/* Add Manual Transaction Modal */}
+      {/* Add Transaction Modal */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-lg font-bold text-white">Record Manual Transaction</h3>
-              <button
-                onClick={() => setModalOpen(false)}
-                className="text-slate-400 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 space-y-5 shadow-2xl relative">
+            <button
+              onClick={() => setModalOpen(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white p-1"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div>
+              <h3 className="text-lg font-bold text-white">Add Manual Transaction</h3>
+              <p className="text-xs text-slate-400 mt-0.5">Record a transaction directly into your business ledger</p>
             </div>
 
-            <form onSubmit={handleManualAddSubmit} className="space-y-4">
+            <form onSubmit={handleManualAdd} className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-semibold text-slate-300 block mb-1">Type</label>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Type</label>
                   <select
                     value={formData.transaction_type}
-                    onChange={(e) => setFormData({ ...formData, transaction_type: e.target.value as TransactionType })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
+                    onChange={(e) => setFormData({ ...formData, transaction_type: e.target.value as any })}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white focus:outline-none focus:border-emerald-500"
                   >
                     <option value="sale">Sale</option>
                     <option value="expense">Expense</option>
                     <option value="purchase">Purchase</option>
-                    <option value="money_received">Money Received</option>
-                    <option value="money_paid">Money Paid</option>
-                    <option value="receivable">Receivable</option>
-                    <option value="payable">Payable</option>
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-slate-300 block mb-1">Amount ({symbol})</label>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Amount (₹)</label>
                   <input
                     type="number"
-                    step="0.01"
                     required
                     value={formData.amount}
                     onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
                     placeholder="0.00"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white focus:outline-none focus:border-emerald-500 font-mono"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300 block mb-1">Item Name / Description</label>
+                <label className="block text-xs font-medium text-slate-300 mb-1">Item Name</label>
                 <input
                   type="text"
                   required
                   value={formData.item}
                   onChange={(e) => setFormData({ ...formData, item: e.target.value })}
                   placeholder="e.g. Aloo Bhajiya"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white focus:outline-none focus:border-emerald-500"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-semibold text-slate-300 block mb-1">Quantity</label>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Quantity</label>
                   <input
                     type="number"
                     value={formData.quantity}
                     onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white focus:outline-none focus:border-emerald-500 font-mono"
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-slate-300 block mb-1">Category</label>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Category</label>
                   <input
                     type="text"
                     value={formData.category}
                     onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                    placeholder="e.g. Food, Supplies"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
+                    placeholder="e.g. Food"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white focus:outline-none focus:border-emerald-500"
                   />
                 </div>
               </div>
 
-              <div className="flex justify-end gap-3 pt-2">
+              <div className="flex gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white"
+                  className="flex-1 py-2.5 bg-slate-800 text-slate-300 font-medium rounded-lg text-sm hover:bg-slate-700 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs px-5 py-2.5 rounded-xl transition-all shadow-md shadow-emerald-500/20"
+                  className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold rounded-lg text-sm transition-colors"
                 >
-                  {isSubmitting ? 'Saving...' : 'Save & Sync Sheet'}
+                  {isSubmitting ? 'Saving...' : 'Save Transaction'}
                 </button>
               </div>
             </form>

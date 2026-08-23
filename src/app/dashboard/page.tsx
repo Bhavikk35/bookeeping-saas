@@ -34,20 +34,66 @@ export default function DashboardOverviewPage() {
     setLoading(true);
 
     const cacheKey = `autoledger_txs_${bizId}`;
+    let localTxs: Transaction[] = [];
+
     const cached = localStorage.getItem(cacheKey);
     if (cached) {
       try {
-        setTransactions(JSON.parse(cached));
+        localTxs = JSON.parse(cached);
+        setTransactions(localTxs);
+
+        // Pre-calculate metrics from local cache for instant UI response
+        const todayStr = new Date().toISOString().split('T')[0];
+        let todaySales = 0;
+        let todayExpenses = 0;
+        localTxs.forEach((tx) => {
+          const amt = Number(tx.amount) || 0;
+          if (tx.transaction_date === todayStr) {
+            if (tx.transaction_type === 'sale') todaySales += amt;
+            if (tx.transaction_type === 'expense' || tx.transaction_type === 'purchase') todayExpenses += amt;
+          }
+        });
+        setMetrics({
+          todaySales,
+          todayExpenses,
+          netCashFlow: todaySales - todayExpenses,
+          transactionCount: localTxs.length,
+        });
       } catch (e) {}
     }
 
     try {
       const res = await fetch(`/api/transactions/list?businessId=${bizId}`);
       const data = await res.json();
-      if (data.success) {
-        setTransactions(data.transactions);
-        setMetrics(data.metrics);
-        localStorage.setItem(cacheKey, JSON.stringify(data.transactions));
+      if (data.success && Array.isArray(data.transactions)) {
+        // Merge server transactions with local transactions so cold starts NEVER wipe data
+        const map = new Map<string, Transaction>();
+        localTxs.forEach((t) => map.set(t.id, t));
+        data.transactions.forEach((t: Transaction) => map.set(t.id, t));
+        const merged = Array.from(map.values()).sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+
+        setTransactions(merged);
+        localStorage.setItem(cacheKey, JSON.stringify(merged));
+
+        const todayStr = new Date().toISOString().split('T')[0];
+        let todaySales = 0;
+        let todayExpenses = 0;
+        merged.forEach((tx) => {
+          const amt = Number(tx.amount) || 0;
+          if (tx.transaction_date === todayStr) {
+            if (tx.transaction_type === 'sale') todaySales += amt;
+            if (tx.transaction_type === 'expense' || tx.transaction_type === 'purchase') todayExpenses += amt;
+          }
+        });
+
+        setMetrics({
+          todaySales: data.metrics?.todaySales || todaySales,
+          todayExpenses: data.metrics?.todayExpenses || todayExpenses,
+          netCashFlow: (data.metrics?.todaySales || todaySales) - (data.metrics?.todayExpenses || todayExpenses),
+          transactionCount: merged.length,
+        });
       }
     } catch (err) {
       console.error('Error loading dashboard data:', err);
@@ -69,7 +115,7 @@ export default function DashboardOverviewPage() {
     setSimResponse(null);
 
     try {
-      const targetBizId = currentBusiness?.id || 'biz_aaaa1111-1111-1111-1111-111111111111';
+      const targetBizId = currentBusiness?.id || 'biz_tenant_bhavik';
       const chatId = `chat_${targetBizId}`;
       const res = await fetch('/api/telegram/webhook', {
         method: 'POST',
@@ -90,235 +136,278 @@ export default function DashboardOverviewPage() {
 
       const data = await res.json();
       if (data.success) {
-        setSimResponse(data.responseMessage);
+        setSimResponse(data.responseMessage || 'Transaction recorded via Telegram!');
         setSimText('');
-        if (currentBusiness?.id) fetchDashboardData(currentBusiness.id);
+        if (currentBusiness?.id) {
+          fetchDashboardData(currentBusiness.id);
+        }
       } else {
-        setSimResponse(`⚠️ ${data.responseMessage || 'Processing failed.'}`);
+        setSimResponse(`Error: ${data.error || data.responseMessage || 'Simulation failed'}`);
       }
     } catch (err: any) {
-      setSimResponse(`⚠️ Error: ${err.message}`);
+      setSimResponse(`Error: ${err.message}`);
     } finally {
       setIsSimulating(false);
     }
   };
 
-  const symbol = currentBusiness?.currency === 'INR' ? '₹' : '$';
-
   return (
-    <div className="space-y-6">
-      {/* Top Banner & Quick Telegram Simulator */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-900 to-emerald-950/40 border border-slate-800 rounded-3xl p-6 shadow-xl relative overflow-hidden">
-        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 relative z-10">
+    <div className="space-y-8">
+      {/* Business Workspace Banner */}
+      <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 relative overflow-hidden backdrop-blur-xl">
+        <div className="absolute -right-10 -bottom-10 w-48 h-48 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div>
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold mb-3">
-              <Sparkles className="w-3.5 h-3.5" /> Live Telegram Conversational Bookkeeping
+            <div className="flex items-center gap-2 mb-1">
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                ⚡ Live Telegram Conversational Bookkeeping
+              </span>
             </div>
-            <h3 className="text-2xl font-black text-white tracking-tight">
-              Record transactions via Telegram
-            </h3>
-            <p className="text-xs text-slate-400 mt-1 max-w-xl">
-              Send messages like <code className="text-emerald-400">"Aloo bhajiya sold for ₹50"</code> or <code className="text-emerald-400">"Bought 10 kg potatoes for ₹400"</code> to update your ledger in real-time.
+            <h2 className="text-2xl font-bold text-white tracking-tight">Record transactions via Telegram</h2>
+            <p className="text-slate-400 text-sm mt-1 max-w-2xl">
+              Send messages like <span className="text-emerald-300 font-mono">"Aloo bhajiya sold for ₹50"</span> or{' '}
+              <span className="text-emerald-300 font-mono">"Bought 10 kg potatoes for ₹400"</span> to update your ledger in real-time.
             </p>
           </div>
 
-          {/* Quick Telegram Message Simulator Form */}
-          <form
-            onSubmit={handleSimulateTelegramMessage}
-            className="w-full lg:w-auto flex-1 max-w-md bg-slate-950/80 border border-slate-800 rounded-2xl p-3 flex flex-col gap-2 shadow-inner"
-          >
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={simText}
-                onChange={(e) => setSimText(e.target.value)}
-                placeholder="Test: 'Aloo bhajiya sold for ₹50'..."
-                className="flex-1 bg-transparent px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none"
-              />
-              <button
-                type="submit"
-                disabled={isSimulating}
-                className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 shrink-0 shadow-md shadow-emerald-500/20 disabled:opacity-50"
-              >
-                <Send className="w-3.5 h-3.5" />
-                {isSimulating ? 'Sending...' : 'Simulate Telegram'}
-              </button>
-            </div>
-            {simResponse && (
-              <p className="text-[11px] font-mono text-emerald-400 px-3 py-1 bg-slate-900/90 rounded border border-slate-800/80 truncate">
-                {simResponse}
-              </p>
-            )}
-          </form>
+          <div className="w-full md:w-auto flex flex-col sm:flex-row gap-3">
+            <Link
+              href="/dashboard/integrations"
+              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500 text-slate-950 font-semibold hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/20 text-sm"
+            >
+              <Send className="w-4 h-4" />
+              Connect Telegram Bot
+            </Link>
+          </div>
         </div>
       </div>
 
       {/* Metrics Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {/* Today's Sales */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
-          <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-2">
-            <span>Today's Sales</span>
-            <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400">
+        <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl p-5 backdrop-blur-md">
+          <div className="flex items-center justify-between">
+            <span className="text-slate-400 text-xs font-medium uppercase tracking-wider">Today's Sales</span>
+            <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400">
               <TrendingUp className="w-4 h-4" />
             </div>
           </div>
-          <p className="text-2xl font-black text-white">
-            {symbol}{metrics ? metrics.todaySales.toLocaleString() : '0'}
-          </p>
-          <span className="text-[11px] text-emerald-400 font-medium flex items-center gap-1 mt-1">
-            <ArrowUpRight className="w-3 h-3" /> Live Daily Revenue
-          </span>
+          <div className="mt-3">
+            <h3 className="text-2xl font-bold text-white">
+              {loading && !metrics ? '...' : `₹${metrics?.todaySales?.toLocaleString('en-IN') || 0}`}
+            </h3>
+            <p className="text-xs text-emerald-400 mt-1 flex items-center gap-1 font-medium">
+              <ArrowUpRight className="w-3 h-3" /> Live Daily Revenue
+            </p>
+          </div>
         </div>
 
         {/* Today's Expenses */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
-          <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-2">
-            <span>Today's Expenses</span>
-            <div className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400">
+        <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl p-5 backdrop-blur-md">
+          <div className="flex items-center justify-between">
+            <span className="text-slate-400 text-xs font-medium uppercase tracking-wider">Today's Expenses</span>
+            <div className="p-2 rounded-lg bg-rose-500/10 text-rose-400">
               <TrendingDown className="w-4 h-4" />
             </div>
           </div>
-          <p className="text-2xl font-black text-white">
-            {symbol}{metrics ? metrics.todayExpenses.toLocaleString() : '0'}
-          </p>
-          <span className="text-[11px] text-rose-400 font-medium flex items-center gap-1 mt-1">
-            <ArrowDownRight className="w-3 h-3" /> Live Daily Outflow
-          </span>
+          <div className="mt-3">
+            <h3 className="text-2xl font-bold text-white">
+              {loading && !metrics ? '...' : `₹${metrics?.todayExpenses?.toLocaleString('en-IN') || 0}`}
+            </h3>
+            <p className="text-xs text-rose-400 mt-1 flex items-center gap-1 font-medium">
+              <ArrowDownRight className="w-3 h-3" /> Live Daily Outflow
+            </p>
+          </div>
         </div>
 
         {/* Net Cash Flow */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
-          <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-2">
-            <span>Net Cash Flow</span>
-            <div className="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-400">
+        <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl p-5 backdrop-blur-md">
+          <div className="flex items-center justify-between">
+            <span className="text-slate-400 text-xs font-medium uppercase tracking-wider">Net Cash Flow</span>
+            <div className="p-2 rounded-lg bg-cyan-500/10 text-cyan-400">
               <DollarSign className="w-4 h-4" />
             </div>
           </div>
-          <p className={`text-2xl font-black ${(metrics?.netCashFlow || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-            {symbol}{metrics ? metrics.netCashFlow.toLocaleString() : '0'}
-          </p>
-          <span className="text-[11px] text-slate-400 font-medium mt-1 block">
-            Total Sales - Expenses
-          </span>
+          <div className="mt-3">
+            <h3 className={`text-2xl font-bold ${(metrics?.netCashFlow || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+              {loading && !metrics ? '...' : `₹${metrics?.netCashFlow?.toLocaleString('en-IN') || 0}`}
+            </h3>
+            <p className="text-xs text-slate-400 mt-1 font-medium">Total Sales - Expenses</p>
+          </div>
         </div>
 
-        {/* Outstanding Receivables */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
-          <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-2">
-            <span>Receivables</span>
-            <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400">
+        {/* Receivables */}
+        <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl p-5 backdrop-blur-md">
+          <div className="flex items-center justify-between">
+            <span className="text-slate-400 text-xs font-medium uppercase tracking-wider">Receivables</span>
+            <div className="p-2 rounded-lg bg-amber-500/10 text-amber-400">
               <Clock className="w-4 h-4" />
             </div>
           </div>
-          <p className="text-2xl font-black text-amber-400">
-            {symbol}{metrics ? metrics.totalReceivables.toLocaleString() : '0'}
-          </p>
-          <span className="text-[11px] text-slate-400 font-medium mt-1 block">
-            Customers owe you
-          </span>
+          <div className="mt-3">
+            <h3 className="text-2xl font-bold text-amber-400">
+              {loading && !metrics ? '...' : `₹${metrics?.totalReceivables?.toLocaleString('en-IN') || 0}`}
+            </h3>
+            <p className="text-xs text-slate-400 mt-1 font-medium">Customers owe you</p>
+          </div>
         </div>
 
-        {/* Outstanding Payables */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
-          <div className="flex items-center justify-between text-slate-400 text-xs font-semibold mb-2">
-            <span>Payables</span>
-            <div className="p-1.5 rounded-lg bg-sky-500/10 text-sky-400">
-              <Receipt className="w-4 h-4" />
+        {/* Payables */}
+        <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl p-5 backdrop-blur-md">
+          <div className="flex items-center justify-between">
+            <span className="text-slate-400 text-xs font-medium uppercase tracking-wider">Payables</span>
+            <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400">
+              <DollarSign className="w-4 h-4" />
             </div>
           </div>
-          <p className="text-2xl font-black text-sky-400">
-            {symbol}{metrics ? metrics.totalPayables.toLocaleString() : '0'}
-          </p>
-          <span className="text-[11px] text-slate-400 font-medium mt-1 block">
-            You owe suppliers
-          </span>
+          <div className="mt-3">
+            <h3 className="text-2xl font-bold text-indigo-400">
+              {loading && !metrics ? '...' : `₹${metrics?.totalPayables?.toLocaleString('en-IN') || 0}`}
+            </h3>
+            <p className="text-xs text-slate-400 mt-1 font-medium">You owe suppliers</p>
+          </div>
         </div>
       </div>
 
-      {/* Financial Transparency Note (Gross Profit / Cost Warning) */}
-      <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 flex items-start gap-3">
-        <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-        <div className="text-xs text-slate-400">
-          <span className="font-semibold text-slate-200 block mb-0.5">Financial Transparency Notice</span>
-          Gross profit and gross margin calculation requires item-level Cost of Goods Sold (COGS). If unit cost data has not been configured in Settings, profit metrics are marked as estimated or uncalculated to maintain accurate financial accounting.
-        </div>
-      </div>
-
-      {/* Recent Transactions Table */}
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-sm">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-lg font-bold text-white tracking-tight">Recent Transactions</h3>
-            <p className="text-xs text-slate-400">Live ledger recorded for {currentBusiness?.business_name}</p>
+      {/* Quick Telegram Test Box & Recent Transactions */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Recent Transactions List */}
+        <div className="lg:col-span-2 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-white">Recent Transactions</h3>
+              <p className="text-xs text-slate-400">Live ledger entries from Telegram & Web</p>
+            </div>
+            <Link
+              href="/dashboard/transactions"
+              className="text-xs font-medium text-emerald-400 hover:text-emerald-300 transition-colors"
+            >
+              View All Transactions →
+            </Link>
           </div>
-          <Link
-            href="/dashboard/transactions"
-            className="text-xs font-bold text-emerald-400 hover:text-emerald-300 transition-colors"
-          >
-            View All Transactions →
-          </Link>
-        </div>
 
-        {loading ? (
-          <div className="py-12 text-center text-xs text-slate-500">Loading ledger data...</div>
-        ) : transactions.length === 0 ? (
-          <div className="py-12 text-center text-xs text-slate-500">
-            No transactions recorded yet. Send your first Telegram message above!
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider">
-                  <th className="py-3 px-3">Date</th>
-                  <th className="py-3 px-3">Type</th>
-                  <th className="py-3 px-3">Item</th>
-                  <th className="py-3 px-3">Category</th>
-                  <th className="py-3 px-3 text-right">Amount</th>
-                  <th className="py-3 px-3 text-center">Source</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60 font-medium">
-                {transactions.slice(0, 5).map((tx) => (
-                  <tr key={tx.id} className="hover:bg-slate-800/40 transition-colors">
-                    <td className="py-3.5 px-3 text-slate-300">{tx.transaction_date}</td>
-                    <td className="py-3.5 px-3">
-                      <span
-                        className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${
+          <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl overflow-hidden backdrop-blur-md">
+            {loading && transactions.length === 0 ? (
+              <div className="p-8 text-center text-slate-400 text-sm">Loading ledger data...</div>
+            ) : transactions.length === 0 ? (
+              <div className="p-12 text-center">
+                <Receipt className="w-10 h-10 text-slate-600 mx-auto mb-3" />
+                <p className="text-slate-300 font-medium text-sm">No transactions recorded yet</p>
+                <p className="text-slate-500 text-xs mt-1 max-w-sm mx-auto">
+                  Send a message to your Telegram bot or use the simulator on the right to add your first transaction.
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-800/60">
+                {transactions.slice(0, 8).map((tx) => (
+                  <div key={tx.id} className="p-4 flex items-center justify-between hover:bg-slate-800/30 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`w-9 h-9 rounded-lg flex items-center justify-center font-bold text-xs ${
                           tx.transaction_type === 'sale'
                             ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                            : tx.transaction_type === 'expense' || tx.transaction_type === 'purchase'
-                            ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                            : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                            : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
                         }`}
                       >
-                        {tx.transaction_type.replace('_', ' ')}
-                      </span>
-                    </td>
-                    <td className="py-3.5 px-3 text-white font-semibold">{tx.item}</td>
-                    <td className="py-3.5 px-3 text-slate-400">{tx.category}</td>
-                    <td className="py-3.5 px-3 text-right font-bold text-white">
-                      {symbol}{tx.amount}
-                    </td>
-                    <td className="py-3.5 px-3 text-center">
-                      <span
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] ${
-                          tx.source === 'telegram'
-                            ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20'
-                            : 'bg-slate-800 text-slate-300'
+                        {tx.transaction_type === 'sale' ? 'SALE' : 'EXP'}
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-semibold text-white">{tx.item}</h4>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-xs text-slate-400">{tx.category}</span>
+                          <span className="text-slate-600">•</span>
+                          <span className="text-xs text-slate-500">{tx.transaction_date}</span>
+                          <span className="text-slate-600">•</span>
+                          <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-slate-800 text-slate-300 border border-slate-700">
+                            {tx.source}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="text-right">
+                      <div
+                        className={`text-sm font-bold font-mono ${
+                          tx.transaction_type === 'sale' ? 'text-emerald-400' : 'text-white'
                         }`}
                       >
-                        {tx.source === 'telegram' ? <Send className="w-3 h-3" /> : <Receipt className="w-3 h-3" />}
-                        {tx.source}
+                        {tx.transaction_type === 'sale' ? '+' : '-'}₹{Number(tx.amount).toLocaleString('en-IN')}
+                      </div>
+                      <span className="text-[10px] font-medium uppercase text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">
+                        {tx.payment_status}
                       </span>
-                    </td>
-                  </tr>
+                    </div>
+                  </div>
                 ))}
-              </tbody>
-            </table>
+              </div>
+            )}
           </div>
-        )}
+        </div>
+
+        {/* Interactive Telegram Test Simulator */}
+        <div className="space-y-4">
+          <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl p-5 backdrop-blur-md">
+            <div className="flex items-center gap-2 mb-2">
+              <Sparkles className="w-4 h-4 text-emerald-400" />
+              <h3 className="text-sm font-semibold text-white">Live AI Simulator</h3>
+            </div>
+            <p className="text-xs text-slate-400 mb-4">
+              Test how natural language messages are parsed into structured ledger entries.
+            </p>
+
+            <form onSubmit={handleSimulateTelegramMessage} className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">Telegram Message</label>
+                <input
+                  type="text"
+                  value={simText}
+                  onChange={(e) => setSimText(e.target.value)}
+                  placeholder='e.g. "Meduvada sold for 40rs"'
+                  className="w-full px-3.5 py-2.5 bg-slate-950/80 border border-slate-800 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 font-sans"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSimulating || !simText.trim()}
+                className="w-full py-2.5 px-4 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 font-semibold rounded-lg text-sm transition-colors flex items-center justify-center gap-2"
+              >
+                {isSimulating ? 'Extracting AI Data...' : 'Simulate Telegram Message'}
+              </button>
+            </form>
+
+            {simResponse && (
+              <div className="mt-4 p-3 rounded-lg bg-slate-950 border border-slate-800 text-xs font-mono text-emerald-400 break-words">
+                {simResponse}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-slate-900/40 border border-slate-800/60 rounded-xl p-5">
+            <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">Quick Test Phrases</h4>
+            <ul className="text-xs text-slate-400 space-y-1.5 font-mono">
+              <li
+                onClick={() => setSimText('Meduvada sold for 40rs')}
+                className="cursor-pointer hover:text-emerald-300 transition-colors"
+              >
+                • "Meduvada sold for 40rs"
+              </li>
+              <li
+                onClick={() => setSimText('Apple sold for 100rs')}
+                className="cursor-pointer hover:text-emerald-300 transition-colors"
+              >
+                • "Apple sold for 100rs"
+              </li>
+              <li
+                onClick={() => setSimText('Daily total counter sale 4500 rupees')}
+                className="cursor-pointer hover:text-emerald-300 transition-colors"
+              >
+                • "Daily total counter sale 4500 rupees"
+              </li>
+            </ul>
+          </div>
+        </div>
       </div>
     </div>
   );
