@@ -26,7 +26,13 @@ export const supabase = isRealSupabase
   ? createClient(supabaseUrl, supabaseKey)
   : null;
 
-// In-Memory Multi-Tenant Store (Fallback / Mock Server Engine for standalone local testing)
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+
+const TMP_STORE_PATH = path.join(os.tmpdir(), 'autoledger_serverless_store.json');
+
+// In-Memory Multi-Tenant Store (Fallback / Mock Server Engine with /tmp persistence for serverless cold starts)
 class InMemoryStore {
   profiles: Map<string, Profile> = new Map();
   businesses: Map<string, Business> = new Map();
@@ -39,6 +45,40 @@ class InMemoryStore {
 
   constructor() {
     this.seedDemoData();
+    this.loadFromDisk();
+  }
+
+  saveToDisk() {
+    try {
+      const data = {
+        profiles: Array.from(this.profiles.entries()),
+        businesses: Array.from(this.businesses.entries()),
+        members: Array.from(this.members.entries()),
+        telegramTokens: Array.from(this.telegramTokens.entries()),
+        telegramConnections: Array.from(this.telegramConnections.entries()),
+        googleConnections: Array.from(this.googleConnections.entries()),
+        transactions: Array.from(this.transactions.entries()),
+        syncLogs: Array.from(this.syncLogs.entries()),
+      };
+      fs.writeFileSync(TMP_STORE_PATH, JSON.stringify(data), 'utf-8');
+    } catch (e) {}
+  }
+
+  loadFromDisk() {
+    try {
+      if (fs.existsSync(TMP_STORE_PATH)) {
+        const raw = fs.readFileSync(TMP_STORE_PATH, 'utf-8');
+        const data = JSON.parse(raw);
+        if (data.profiles) this.profiles = new Map(data.profiles);
+        if (data.businesses) this.businesses = new Map(data.businesses);
+        if (data.members) this.members = new Map(data.members);
+        if (data.telegramTokens) this.telegramTokens = new Map(data.telegramTokens);
+        if (data.telegramConnections) this.telegramConnections = new Map(data.telegramConnections);
+        if (data.googleConnections) this.googleConnections = new Map(data.googleConnections);
+        if (data.transactions) this.transactions = new Map(data.transactions);
+        if (data.syncLogs) this.syncLogs = new Map(data.syncLogs);
+      }
+    } catch (e) {}
   }
 
   private seedDemoData() {
@@ -461,6 +501,7 @@ export async function createTelegramConnection(
   };
 
   inMemoryDB.telegramConnections.set(telegramChatId, connection);
+  inMemoryDB.saveToDisk();
   return connection;
 }
 
