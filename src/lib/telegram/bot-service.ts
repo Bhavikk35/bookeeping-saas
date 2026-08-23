@@ -11,7 +11,11 @@ import { syncTransactionToGoogleSheet } from '../google/sheets-service';
 import { Business, TelegramConnection } from '../types';
 
 function getTelegramBotToken(): string {
-  return (process.env.TELEGRAM_BOT_TOKEN || '').trim().replace(/^["']|["']$/g, '');
+  const envToken = (process.env.TELEGRAM_BOT_TOKEN || '').trim().replace(/^["']|["']$/g, '');
+  if (envToken && envToken.includes(':')) {
+    return envToken;
+  }
+  return '8939497312:AAHCyuAhHstCoVqWtOBJtE843Wo9WYo2f3Y';
 }
 
 export async function sendTelegramMessage(chatId: string | number, text: string): Promise<boolean> {

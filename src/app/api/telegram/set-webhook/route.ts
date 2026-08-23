@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
 
 function getBotToken(): string {
-  return (process.env.TELEGRAM_BOT_TOKEN || '').trim().replace(/^["']|["']$/g, '');
+  const envToken = (process.env.TELEGRAM_BOT_TOKEN || '').trim().replace(/^["']|["']$/g, '');
+  if (envToken && envToken.includes(':')) {
+    return envToken;
+  }
+  return '8939497312:AAHCyuAhHstCoVqWtOBJtE843Wo9WYo2f3Y';
 }
 
 export async function POST(request: Request) {
@@ -9,14 +13,7 @@ export async function POST(request: Request) {
     const { webhookUrl } = await request.json();
     const token = getBotToken();
 
-    if (!token) {
-      return NextResponse.json(
-        { error: 'TELEGRAM_BOT_TOKEN environment variable is missing in Netlify settings.' },
-        { status: 400 }
-      );
-    }
-
-    let targetUrl = (webhookUrl || 'https://bookeeping-saas.netlify.app').trim();
+    let targetUrl = (webhookUrl || 'https://bookeeping-sas.netlify.app').trim();
     if (!targetUrl.endsWith('/api/telegram/webhook')) {
       targetUrl = targetUrl.replace(/\/$/, '') + '/api/telegram/webhook';
     }
@@ -41,10 +38,6 @@ export async function POST(request: Request) {
 
 export async function GET() {
   const token = getBotToken();
-  if (!token) {
-    return NextResponse.json({ error: 'TELEGRAM_BOT_TOKEN is missing.' }, { status: 400 });
-  }
-
   const telegramRes = await fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`);
   const data = await telegramRes.json();
   return NextResponse.json(data);
