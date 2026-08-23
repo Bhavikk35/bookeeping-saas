@@ -431,7 +431,11 @@ export async function verifyAndConsumeTelegramToken(token: string): Promise<Tele
   let tokenObj = inMemoryDB.telegramTokens.get(token);
   if (!tokenObj) {
     const allBizs = Array.from(inMemoryDB.businesses.values());
-    const targetBiz = allBizs.find((b) => !b.id.includes('aaaa1111')) || allBizs[0];
+    const targetBiz =
+      allBizs.find((b) => !b.id.includes('aaaa1111') && !b.id.includes('bbbb2222') && !b.id.includes('cccc3333')) ||
+      allBizs.find((b) => b.business_name.toLowerCase().includes('bhavik')) ||
+      allBizs[allBizs.length - 1];
+
     tokenObj = {
       id: `tok_${token}`,
       business_id: targetBiz ? targetBiz.id : 'biz_aaaa1111-1111-1111-1111-111111111111',

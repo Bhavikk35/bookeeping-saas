@@ -249,6 +249,11 @@ Rules:
     if (outputText) {
       const parsed = JSON.parse(outputText) as AIExtractionResult;
       if (parsed.transaction) {
+        let cleanItem = parsed.transaction.item;
+        if (!cleanItem || cleanItem === 'undefined' || cleanItem === 'null') {
+          cleanItem = parsed.transaction.category || text || 'General Transaction';
+        }
+        parsed.transaction.item = cleanItem;
         parsed.transaction.currency = parsed.transaction.currency || businessCurrency;
         parsed.transaction.payment_status = (parsed.transaction.payment_status as any) || 'paid';
         parsed.transaction.transaction_date =
