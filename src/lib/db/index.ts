@@ -183,7 +183,9 @@ class InMemoryStore {
   }
 }
 
-export const inMemoryDB = new InMemoryStore();
+const globalStore = (globalThis as any).__AUTOLEDGER_GLOBAL_STORE__ || new InMemoryStore();
+(globalThis as any).__AUTOLEDGER_GLOBAL_STORE__ = globalStore;
+export const inMemoryDB: InMemoryStore = globalStore;
 
 // DATA ACCESS LAYER FUNCTIONS
 
@@ -666,12 +668,7 @@ export async function getBusinessTransactions(
     } catch (e) {}
   }
 
-  let txs = Array.from(inMemoryDB.transactions.values()).filter(
-    (t) =>
-      t.business_id === businessId ||
-      !t.business_id.includes('aaaa1111') ||
-      t.business_id === 'biz_tenant_bhavik'
-  );
+  let txs = Array.from(inMemoryDB.transactions.values());
 
   if (filters?.date) txs = txs.filter((t) => t.transaction_date === filters.date);
   if (filters?.type) txs = txs.filter((t) => t.transaction_type === filters.type);
