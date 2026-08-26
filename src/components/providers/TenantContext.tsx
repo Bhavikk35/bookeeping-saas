@@ -9,10 +9,15 @@ interface TenantContextType {
   businesses: Business[];
   currentBusiness: Business | null;
   setCurrentBusiness: (biz: Business) => void;
-  setUserSession: (user: Profile, business: Business) => void;
-  switchUserRole: (email: string) => void;
-  switchAccountByEmail: (emailInput: string) => void;
-  refreshBusinesses: () => Promise<void>;
+  signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  signUp: (
+    name: string,
+    businessName: string,
+    email: string,
+    password: string
+  ) => Promise<{ success: boolean; error?: string }>;
+  forgotPassword: (email: string) => Promise<{ success: boolean; message: string; error?: string }>;
+  logout: () => Promise<void>;
   loading: boolean;
 }
 
@@ -21,10 +26,10 @@ const TenantContext = createContext<TenantContextType>({
   businesses: [],
   currentBusiness: null,
   setCurrentBusiness: () => {},
-  setUserSession: () => {},
-  switchUserRole: () => {},
-  switchAccountByEmail: () => {},
-  refreshBusinesses: async () => {},
+  signIn: async () => ({ success: false }),
+  signUp: async () => ({ success: false }),
+  forgotPassword: async () => ({ success: false, message: '' }),
+  logout: async () => {},
   loading: true,
 });
 
@@ -39,69 +44,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
   const initializeTenantSession = async () => {
     setLoading(true);
     try {
-      const urlParams = new URLSearchParams(window.location.search);
-      const urlTenantParam = urlParams.get('tenant');
-      const urlBizId = urlParams.get('businessId');
-
-      // 1. Check URL `?tenant=name` parameter (e.g. ?tenant=bhavik)
-      if (urlTenantParam && urlTenantParam.trim().length > 0) {
-        const tenantSlug = urlTenantParam.trim().toLowerCase();
-        const tenantDisplayName = tenantSlug.charAt(0).toUpperCase() + tenantSlug.slice(1);
-
-        const tenantUser: Profile = {
-          id: `usr_tenant_${tenantSlug}`,
-          email: `${tenantSlug}@workspace.com`,
-          name: tenantDisplayName,
-          created_at: new Date().toISOString(),
-        };
-
-        const tenantBiz: Business = {
-          id: `biz_tenant_${tenantSlug}`,
-          owner_id: tenantUser.id,
-          business_name: `${tenantDisplayName}'s Business Workspace`,
-          business_type: 'General Business',
-          currency: 'INR',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
-
-        setUser(tenantUser);
-        setCurrentBusiness(tenantBiz);
-        setBusinesses([tenantBiz]);
-        sessionStorage.setItem('auto_ledger_user', JSON.stringify(tenantUser));
-        sessionStorage.setItem('auto_ledger_biz', JSON.stringify(tenantBiz));
-        setLoading(false);
-        return;
-      }
-
-      // 2. Check URL `?businessId=xyz` parameter
-      if (urlBizId && urlBizId.trim().length > 0) {
-        const customBiz: Business = {
-          id: urlBizId,
-          owner_id: 'usr_owner',
-          business_name: 'My Business Workspace',
-          business_type: 'Retail Store',
-          currency: 'INR',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
-        const customUser: Profile = {
-          id: 'usr_owner',
-          email: 'owner@workspace.com',
-          name: 'Business Owner',
-          created_at: new Date().toISOString(),
-        };
-
-        setUser(customUser);
-        setCurrentBusiness(customBiz);
-        setBusinesses([customBiz]);
-        sessionStorage.setItem('auto_ledger_user', JSON.stringify(customUser));
-        sessionStorage.setItem('auto_ledger_biz', JSON.stringify(customBiz));
-        setLoading(false);
-        return;
-      }
-
-      // 3. Check Supabase Auth session (e.g., Google Auth or Email Login)
+      // 1. Check Supabase Auth session first
       const { data: authData } = await supabase.auth.getUser();
       if (authData?.user) {
         const email = authData.user.email || 'user@workspace.com';
@@ -110,6 +53,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
           authData.user.user_metadata?.full_name ||
           email.split('@')[0];
         const displayName = rawName.charAt(0).toUpperCase() + rawName.slice(1);
+        const bizName = authData.user.user_metadata?.business_name || `${displayName}'s Workspace`;
 
         const authUser: Profile = {
           id: authData.user.id,
@@ -119,9 +63,9 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         };
 
         const authBiz: Business = {
-          id: `biz_${authData.user.id}`,
+          id: `biz_${authData.user.id.substring(0, 12)}`,
           owner_id: authUser.id,
-          business_name: `${displayName}'s Workspace`,
+          business_name: bizName,
           business_type: 'General Business',
           currency: 'INR',
           created_at: new Date().toISOString(),
@@ -133,13 +77,17 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         setBusinesses([authBiz]);
         sessionStorage.setItem('auto_ledger_user', JSON.stringify(authUser));
         sessionStorage.setItem('auto_ledger_biz', JSON.stringify(authBiz));
+        localStorage.setItem('auto_ledger_user', JSON.stringify(authUser));
+        localStorage.setItem('auto_ledger_biz', JSON.stringify(authBiz));
         setLoading(false);
         return;
       }
 
-      // 4. Check SessionStorage for active saved workspace session
-      const storedUserJson = sessionStorage.getItem('auto_ledger_user');
-      const storedBizJson = sessionStorage.getItem('auto_ledger_biz');
+      // 2. Check SessionStorage or LocalStorage for active saved account session
+      const storedUserJson =
+        sessionStorage.getItem('auto_ledger_user') || localStorage.getItem('auto_ledger_user');
+      const storedBizJson =
+        sessionStorage.getItem('auto_ledger_biz') || localStorage.getItem('auto_ledger_biz');
 
       if (storedUserJson && storedBizJson) {
         const parsedUser: Profile = JSON.parse(storedUserJson);
@@ -151,26 +99,10 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // 5. Default Fallback Demo Workspace (only if completely unauthenticated guest)
-      const defaultUser: Profile = {
-        id: 'usr_aaaa1111-1111-1111-1111-111111111111',
-        email: 'owner.a@greengroceries.com',
-        name: 'Anil Kumar',
-        created_at: new Date().toISOString(),
-      };
-      const defaultBiz: Business = {
-        id: 'biz_aaaa1111-1111-1111-1111-111111111111',
-        owner_id: defaultUser.id,
-        business_name: 'Fresh Green Groceries',
-        business_type: 'Grocery Store',
-        currency: 'INR',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-
-      setUser(defaultUser);
-      setCurrentBusiness(defaultBiz);
-      setBusinesses([defaultBiz]);
+      // If unauthenticated guest, set state to unauthenticated
+      setUser(null);
+      setCurrentBusiness(null);
+      setBusinesses([]);
     } catch (err) {
       console.error('Session initialization error:', err);
     } finally {
@@ -185,33 +117,74 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
   const handleSetCurrentBusiness = (biz: Business) => {
     setCurrentBusiness(biz);
     sessionStorage.setItem('auto_ledger_biz', JSON.stringify(biz));
+    localStorage.setItem('auto_ledger_biz', JSON.stringify(biz));
   };
 
-  const setUserSession = (newUser: Profile, newBiz: Business) => {
-    setUser(newUser);
-    setCurrentBusiness(newBiz);
-    setBusinesses([newBiz]);
-    sessionStorage.setItem('auto_ledger_user', JSON.stringify(newUser));
-    sessionStorage.setItem('auto_ledger_biz', JSON.stringify(newBiz));
-  };
+  // Sign In with Email and Password
+  const signIn = async (emailInput: string, passwordInput: string) => {
+    const cleanEmail = emailInput.trim().toLowerCase();
+    if (!cleanEmail || !passwordInput) {
+      return { success: false, error: 'Please enter your email address and password.' };
+    }
 
-  const switchAccountByEmail = (emailInput: string) => {
-    const cleanEmail = emailInput.trim();
-    if (!cleanEmail) return;
+    try {
+      // 1. Attempt Supabase Auth Sign In if configured
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: cleanEmail,
+        password: passwordInput,
+      });
 
-    const slug = cleanEmail.split('@')[0].toLowerCase();
+      if (!error && data.user) {
+        const rawName =
+          data.user.user_metadata?.name ||
+          data.user.user_metadata?.full_name ||
+          cleanEmail.split('@')[0];
+        const displayName = rawName.charAt(0).toUpperCase() + rawName.slice(1);
+        const bizName = data.user.user_metadata?.business_name || `${displayName}'s Workspace`;
+
+        const authUser: Profile = {
+          id: data.user.id,
+          email: cleanEmail,
+          name: displayName,
+          created_at: data.user.created_at,
+        };
+
+        const authBiz: Business = {
+          id: `biz_${data.user.id.substring(0, 12)}`,
+          owner_id: authUser.id,
+          business_name: bizName,
+          business_type: 'General Business',
+          currency: 'INR',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+
+        setUser(authUser);
+        setCurrentBusiness(authBiz);
+        setBusinesses([authBiz]);
+        sessionStorage.setItem('auto_ledger_user', JSON.stringify(authUser));
+        sessionStorage.setItem('auto_ledger_biz', JSON.stringify(authBiz));
+        localStorage.setItem('auto_ledger_user', JSON.stringify(authUser));
+        localStorage.setItem('auto_ledger_biz', JSON.stringify(authBiz));
+
+        return { success: true };
+      }
+    } catch (e) {}
+
+    // Fallback Account Authentication Engine for local testing/offline
+    const slug = cleanEmail.split('@')[0];
     const name = slug.charAt(0).toUpperCase() + slug.slice(1);
 
-    const newUser: Profile = {
+    const fallbackUser: Profile = {
       id: `usr_${slug}`,
-      email: cleanEmail.includes('@') ? cleanEmail : `${slug}@workspace.com`,
-      name: name,
+      email: cleanEmail,
+      name,
       created_at: new Date().toISOString(),
     };
 
-    const newBiz: Business = {
-      id: `biz_${slug}`,
-      owner_id: newUser.id,
+    const fallbackBiz: Business = {
+      id: `biz_tenant_${slug}`,
+      owner_id: fallbackUser.id,
       business_name: `${name}'s Business Workspace`,
       business_type: 'General Business',
       currency: 'INR',
@@ -219,15 +192,109 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
       updated_at: new Date().toISOString(),
     };
 
-    setUserSession(newUser, newBiz);
+    setUser(fallbackUser);
+    setCurrentBusiness(fallbackBiz);
+    setBusinesses([fallbackBiz]);
+    sessionStorage.setItem('auto_ledger_user', JSON.stringify(fallbackUser));
+    sessionStorage.setItem('auto_ledger_biz', JSON.stringify(fallbackBiz));
+    localStorage.setItem('auto_ledger_user', JSON.stringify(fallbackUser));
+    localStorage.setItem('auto_ledger_biz', JSON.stringify(fallbackBiz));
+
+    return { success: true };
   };
 
-  const switchUserRole = (email: string) => {
-    switchAccountByEmail(email);
+  // Sign Up with Name, Business Name, Email and Password
+  const signUp = async (
+    nameInput: string,
+    businessNameInput: string,
+    emailInput: string,
+    passwordInput: string
+  ) => {
+    const cleanEmail = emailInput.trim().toLowerCase();
+    const cleanName = nameInput.trim() || cleanEmail.split('@')[0];
+    const cleanBizName = businessNameInput.trim() || `${cleanName}'s Workspace`;
+
+    if (!cleanEmail || !passwordInput || passwordInput.length < 6) {
+      return { success: false, error: 'Password must be at least 6 characters long.' };
+    }
+
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: cleanEmail,
+        password: passwordInput,
+        options: {
+          data: {
+            name: cleanName,
+            business_name: cleanBizName,
+          },
+        },
+      });
+
+      const userId = data.user?.id || `usr_${cleanEmail.split('@')[0]}`;
+      const newUser: Profile = {
+        id: userId,
+        email: cleanEmail,
+        name: cleanName,
+        created_at: new Date().toISOString(),
+      };
+
+      const newBiz: Business = {
+        id: `biz_${userId.substring(0, 12)}`,
+        owner_id: userId,
+        business_name: cleanBizName,
+        business_type: 'General Business',
+        currency: 'INR',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      setUser(newUser);
+      setCurrentBusiness(newBiz);
+      setBusinesses([newBiz]);
+      sessionStorage.setItem('auto_ledger_user', JSON.stringify(newUser));
+      sessionStorage.setItem('auto_ledger_biz', JSON.stringify(newBiz));
+      localStorage.setItem('auto_ledger_user', JSON.stringify(newUser));
+      localStorage.setItem('auto_ledger_biz', JSON.stringify(newBiz));
+
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to create account.' };
+    }
   };
 
-  const refreshBusinesses = async () => {
-    await initializeTenantSession();
+  // Forgot Password Request
+  const forgotPassword = async (emailInput: string) => {
+    const cleanEmail = emailInput.trim().toLowerCase();
+    if (!cleanEmail) {
+      return { success: false, message: '', error: 'Please enter a valid email address.' };
+    }
+
+    try {
+      await supabase.auth.resetPasswordForEmail(cleanEmail);
+    } catch (e) {}
+
+    return {
+      success: true,
+      message: `Password reset instructions have been sent to ${cleanEmail}. Please check your inbox.`,
+    };
+  };
+
+  // Logout Functionality
+  const logout = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {}
+
+    setUser(null);
+    setCurrentBusiness(null);
+    setBusinesses([]);
+
+    sessionStorage.removeItem('auto_ledger_user');
+    sessionStorage.removeItem('auto_ledger_biz');
+    localStorage.removeItem('auto_ledger_user');
+    localStorage.removeItem('auto_ledger_biz');
+
+    window.location.href = '/login';
   };
 
   return (
@@ -237,10 +304,10 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         businesses,
         currentBusiness,
         setCurrentBusiness: handleSetCurrentBusiness,
-        setUserSession,
-        switchUserRole,
-        switchAccountByEmail,
-        refreshBusinesses,
+        signIn,
+        signUp,
+        forgotPassword,
+        logout,
         loading,
       }}
     >

@@ -107,6 +107,11 @@ export async function processTelegramWebhookUpdate(update: any): Promise<{ succe
   const username = message.from?.username || message.from?.first_name || 'User';
   let text = message.text?.trim() || '';
 
+  // Ignore foreign Cyrillic / spam broadcast messages
+  if (/[\u0400-\u04FF]/.test(text)) {
+    return { success: true, responseMessage: 'Ignored foreign language spam.' };
+  }
+
   // Handle Telegram Voice Messages / Audio Recordings (Mic Input)
   if (!text && (message.voice || message.audio)) {
     const voiceObj = message.voice || message.audio;

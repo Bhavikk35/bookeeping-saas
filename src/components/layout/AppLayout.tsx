@@ -13,30 +13,20 @@ import {
   PlusCircle,
   Building2,
   Send,
-  FileSpreadsheet,
   User,
   ShieldCheck,
   ChevronDown,
   Menu,
   X,
   LogOut,
-  Mail,
   LogIn,
 } from 'lucide-react';
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { user, businesses, currentBusiness, setCurrentBusiness, switchAccountByEmail } = useTenant();
+  const { user, businesses, currentBusiness, setCurrentBusiness, logout } = useTenant();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [tenantDropdownOpen, setTenantDropdownOpen] = useState(false);
-  const [loginEmail, setLoginEmail] = useState('');
-
-  const handleInlineLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!loginEmail.trim()) return;
-    switchAccountByEmail(loginEmail);
-    setLoginEmail('');
-  };
 
   const navItems = [
     { name: 'Overview', href: '/dashboard', icon: LayoutDashboard },
@@ -156,9 +146,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           </nav>
         </div>
 
-        {/* User Profile & Account Section */}
+        {/* User Profile Footer & Sign Out */}
         <div className="p-4 border-t border-slate-800 space-y-3 bg-slate-900/80">
-          {/* User Profile Footer & Sign Out */}
           <div className="flex items-center justify-between pt-1">
             <div className="flex items-center gap-2.5 truncate">
               <div className="w-8 h-8 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-xs shrink-0">
@@ -166,19 +155,25 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               </div>
               <div className="truncate">
                 <p className="text-xs font-semibold text-white truncate">{user?.name || 'Account Owner'}</p>
-                <p className="text-[10px] text-slate-400 truncate">{user?.email || 'Active Workspace'}</p>
+                <p className="text-[10px] text-slate-400 truncate">{user?.email || 'Logged Out'}</p>
               </div>
             </div>
-            <button
-              onClick={() => {
-                sessionStorage.clear();
-                window.location.href = '/dashboard';
-              }}
-              title="Reset Session"
-              className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
+            {user ? (
+              <button
+                onClick={logout}
+                title="Sign Out"
+                className="p-2 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 hover:text-rose-300 transition-colors flex items-center gap-1 text-xs font-semibold"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            ) : (
+              <Link
+                href="/login"
+                className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors text-xs font-bold"
+              >
+                <LogIn className="w-4 h-4" />
+              </Link>
+            )}
           </div>
         </div>
       </aside>
@@ -192,9 +187,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               {currentBusiness?.business_name || 'Dashboard'}
             </h2>
             <p className="text-xs text-slate-400 flex items-center gap-2 mt-0.5">
-              <span>{currentBusiness?.business_type}</span>
+              <span>{currentBusiness?.business_type || 'General Business'}</span>
               <span>•</span>
-              <span className="text-emerald-400 font-medium">{currentBusiness?.currency} Currency</span>
+              <span className="text-emerald-400 font-medium">{currentBusiness?.currency || 'INR'} Currency</span>
               <span>•</span>
               <span className="inline-flex items-center gap-1 text-[11px] text-emerald-400/90 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
                 <ShieldCheck className="w-3 h-3" /> Tenant Isolated
@@ -202,33 +197,37 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
-            {/* Direct Header Sign-In Input & Button */}
-            <form onSubmit={handleInlineLogin} className="flex items-center gap-1.5">
-              <div className="relative">
-                <Mail className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
-                <input
-                  type="email"
-                  placeholder="Enter email to sign in..."
-                  value={loginEmail}
-                  onChange={(e) => setLoginEmail(e.target.value)}
-                  className="bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 w-44 sm:w-56"
-                />
+          <div className="flex items-center gap-3">
+            {/* Logged In User Email Badge & Logout Button */}
+            {user ? (
+              <div className="flex items-center gap-3 bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-1.5">
+                <div className="flex items-center gap-2">
+                  <User className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="text-xs font-semibold text-slate-200">{user.email}</span>
+                </div>
+                <button
+                  onClick={logout}
+                  className="text-xs font-bold text-rose-400 hover:text-rose-300 flex items-center gap-1 border-l border-slate-800 pl-3 py-0.5 transition-colors"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  Logout
+                </button>
               </div>
-              <button
-                type="submit"
-                className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs px-3 py-1.5 rounded-xl transition-all border border-slate-700 flex items-center gap-1.5"
+            ) : (
+              <Link
+                href="/login"
+                className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs px-4 py-2 rounded-xl transition-all shadow-md shadow-emerald-500/10 flex items-center gap-1.5"
               >
-                <LogIn className="w-3.5 h-3.5 text-emerald-400" />
+                <LogIn className="w-4 h-4" />
                 Sign In
-              </button>
-            </form>
+              </Link>
+            )}
 
             <Link
               href="/onboarding"
-              className="hidden sm:flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs px-3.5 py-2 rounded-xl transition-all shadow-md shadow-emerald-500/10 shrink-0"
+              className="hidden sm:flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs px-3.5 py-2 rounded-xl transition-all border border-slate-700 shrink-0"
             >
-              <PlusCircle className="w-4 h-4" />
+              <PlusCircle className="w-4 h-4 text-emerald-400" />
               New Workspace
             </Link>
           </div>
