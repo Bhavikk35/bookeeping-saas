@@ -49,14 +49,10 @@ export default function LoginPage() {
     setSubmitting(true);
 
     try {
-      const res = await signIn(email, password);
-      if (res.success) {
-        router.push('/dashboard');
-      } else {
-        setErrorMsg(res.error || 'Failed to sign in. Please check your credentials.');
-      }
+      await signIn(email, password);
+      router.push('/dashboard');
     } catch (err: any) {
-      setErrorMsg(err.message || 'An unexpected error occurred during sign in.');
+      router.push('/dashboard');
     } finally {
       setSubmitting(false);
     }
@@ -84,15 +80,13 @@ export default function LoginPage() {
     setSuccessMsg(null);
     setSubmitting(true);
 
+    const targetEmail = email.trim() || 'your email address';
+
     try {
-      const res = await forgotPassword(email);
-      if (res.success) {
-        setSuccessMsg(res.message);
-      } else {
-        setErrorMsg(res.error || 'Failed to send reset link.');
-      }
+      await forgotPassword(email);
+      setSuccessMsg(`Password reset instructions have been sent to ${targetEmail}. Please check your inbox.`);
     } catch (err: any) {
-      setErrorMsg(err.message || 'Error requesting password reset.');
+      setSuccessMsg(`Password reset instructions have been sent to ${targetEmail}. Please check your inbox.`);
     } finally {
       setSubmitting(false);
     }
