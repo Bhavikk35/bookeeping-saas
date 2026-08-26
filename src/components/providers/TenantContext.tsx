@@ -214,28 +214,6 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     const cleanName = nameInput.trim() || cleanEmail.split('@')[0];
     const cleanBizName = businessNameInput.trim() || `${cleanName}'s Workspace`;
 
-    if (!cleanEmail || !passwordInput || passwordInput.length < 6) {
-      return { success: false, error: 'Password must be at least 6 characters long.' };
-    }
-
-    try {
-      const { data, error } = await supabase.auth.signUp({
-        email: cleanEmail,
-        password: passwordInput,
-        options: {
-          data: {
-            name: cleanName,
-            business_name: cleanBizName,
-          },
-        },
-      });
-
-      if (error && error.message.toLowerCase().includes('already registered')) {
-        const signInRes = await signIn(cleanEmail, passwordInput);
-        if (signInRes.success) return { success: true };
-      }
-    } catch (e) {}
-
     const slug = cleanEmail.replace(/[^a-zA-Z0-9]/g, '_');
     const newUser: Profile = {
       id: `usr_${slug}`,
@@ -257,6 +235,20 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     // Erase old cached transactions for clean new account start
     localStorage.removeItem(`autoledger_txs_${newBiz.id}`);
     sessionStorage.removeItem(`autoledger_txs_${newBiz.id}`);
+
+    // Try Supabase Auth silently in background
+    try {
+      await supabase.auth.signUp({
+        email: cleanEmail,
+        password: passwordInput,
+        options: {
+          data: {
+            name: cleanName,
+            business_name: cleanBizName,
+          },
+        },
+      });
+    } catch (e) {}
 
     setUser(newUser);
     setCurrentBusiness(newBiz);

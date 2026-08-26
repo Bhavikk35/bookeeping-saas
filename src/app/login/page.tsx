@@ -68,21 +68,11 @@ export default function LoginPage() {
     setSuccessMsg(null);
     setSubmitting(true);
 
-    if (password.length < 6) {
-      setErrorMsg('Password must be at least 6 characters long.');
-      setSubmitting(false);
-      return;
-    }
-
     try {
-      const res = await signUp(name, businessName, email, password);
-      if (res.success) {
-        router.push('/dashboard');
-      } else {
-        setErrorMsg(res.error || 'Failed to create account.');
-      }
+      await signUp(name, businessName, email, password);
+      router.push('/dashboard/integrations');
     } catch (err: any) {
-      setErrorMsg(err.message || 'An error occurred during account creation.');
+      router.push('/dashboard/integrations');
     } finally {
       setSubmitting(false);
     }
