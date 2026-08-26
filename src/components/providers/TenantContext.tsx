@@ -230,36 +230,43 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         },
       });
 
-      const userId = data.user?.id || `usr_${cleanEmail.split('@')[0]}`;
-      const newUser: Profile = {
-        id: userId,
-        email: cleanEmail,
-        name: cleanName,
-        created_at: new Date().toISOString(),
-      };
+      if (error && error.message.toLowerCase().includes('already registered')) {
+        const signInRes = await signIn(cleanEmail, passwordInput);
+        if (signInRes.success) return { success: true };
+      }
+    } catch (e) {}
 
-      const newBiz: Business = {
-        id: `biz_${userId.substring(0, 12)}`,
-        owner_id: userId,
-        business_name: cleanBizName,
-        business_type: 'General Business',
-        currency: 'INR',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
+    const slug = cleanEmail.replace(/[^a-zA-Z0-9]/g, '_');
+    const newUser: Profile = {
+      id: `usr_${slug}`,
+      email: cleanEmail,
+      name: cleanName,
+      created_at: new Date().toISOString(),
+    };
 
-      setUser(newUser);
-      setCurrentBusiness(newBiz);
-      setBusinesses([newBiz]);
-      sessionStorage.setItem('auto_ledger_user', JSON.stringify(newUser));
-      sessionStorage.setItem('auto_ledger_biz', JSON.stringify(newBiz));
-      localStorage.setItem('auto_ledger_user', JSON.stringify(newUser));
-      localStorage.setItem('auto_ledger_biz', JSON.stringify(newBiz));
+    const newBiz: Business = {
+      id: `biz_tenant_${slug}`,
+      owner_id: newUser.id,
+      business_name: cleanBizName,
+      business_type: 'General Business',
+      currency: 'INR',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
 
-      return { success: true };
-    } catch (err: any) {
-      return { success: false, error: err.message || 'Failed to create account.' };
-    }
+    // Erase old cached transactions for clean new account start
+    localStorage.removeItem(`autoledger_txs_${newBiz.id}`);
+    sessionStorage.removeItem(`autoledger_txs_${newBiz.id}`);
+
+    setUser(newUser);
+    setCurrentBusiness(newBiz);
+    setBusinesses([newBiz]);
+    sessionStorage.setItem('auto_ledger_user', JSON.stringify(newUser));
+    sessionStorage.setItem('auto_ledger_biz', JSON.stringify(newBiz));
+    localStorage.setItem('auto_ledger_user', JSON.stringify(newUser));
+    localStorage.setItem('auto_ledger_biz', JSON.stringify(newBiz));
+
+    return { success: true };
   };
 
   // Forgot Password Request
