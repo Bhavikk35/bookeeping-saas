@@ -283,10 +283,23 @@ export async function getBusiness(businessId: string): Promise<Business | null> 
 }
 
 // TELEGRAM CONNECTION LOGIC
-export async function createTelegramToken(businessId: string): Promise<TelegramConnectionToken> {
+export async function createTelegramToken(businessId: string, businessName?: string): Promise<TelegramConnectionToken> {
   const token = `connect_${crypto.randomUUID().replace(/-/g, '')}`;
   const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
   const now = new Date().toISOString();
+
+  if (!inMemoryDB.businesses.has(businessId)) {
+    const newBiz: Business = {
+      id: businessId,
+      owner_id: `usr_${businessId}`,
+      business_name: businessName || 'My Business Workspace',
+      business_type: 'General Business',
+      currency: 'INR',
+      created_at: now,
+      updated_at: now,
+    };
+    inMemoryDB.businesses.set(businessId, newBiz);
+  }
 
   if (supabase) {
     try {

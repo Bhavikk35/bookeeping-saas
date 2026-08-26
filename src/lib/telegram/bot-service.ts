@@ -21,23 +21,25 @@ function getTelegramBotToken(): string {
   return '8939497312:AAHCyuAhHstCoVqWtOBJtE843Wo9WYo2f3Y';
 }
 
-function resolveActiveTenantWorkspace(): Business {
-  const allBizs = Array.from(inMemoryDB.businesses.values()) as Business[];
-  const bhavikBiz = allBizs.find(
-    (b) => b.business_name.toLowerCase().includes('bhavik') || b.id.includes('bhavik')
-  );
-  if (bhavikBiz) return bhavikBiz;
+function resolveActiveTenantWorkspace(businessId?: string): Business {
+  if (businessId && inMemoryDB.businesses.has(businessId)) {
+    return inMemoryDB.businesses.get(businessId)!;
+  }
 
-  const tenantBiz = allBizs.find(
+  const allBizs = Array.from(inMemoryDB.businesses.values()) as Business[];
+  const customBizs = allBizs.filter(
     (b) => !b.id.includes('aaaa1111') && !b.id.includes('bbbb2222') && !b.id.includes('cccc3333')
   );
-  if (tenantBiz) return tenantBiz;
+
+  if (customBizs.length > 0) {
+    return customBizs[customBizs.length - 1];
+  }
 
   return (
     allBizs[0] || {
-      id: 'biz_tenant_bhavik',
-      owner_id: 'usr_tenant_bhavik',
-      business_name: "Bhaviksnv's Business Workspace",
+      id: 'biz_active_tenant',
+      owner_id: 'usr_active_tenant',
+      business_name: 'My Business Workspace',
       business_type: 'General Business',
       currency: 'INR',
       created_at: new Date().toISOString(),

@@ -3,13 +3,15 @@ import { createTelegramToken } from '@/lib/db';
 
 export async function POST(request: Request) {
   try {
-    const { businessId } = await request.json();
+    const body = await request.json();
+    const businessId = body.businessId;
+    const businessName = body.businessName;
 
     if (!businessId) {
       return NextResponse.json({ error: 'Business ID is required.' }, { status: 400 });
     }
 
-    const tokenRecord = await createTelegramToken(businessId);
+    const tokenRecord = await createTelegramToken(businessId, businessName);
     const botUsername = process.env.TELEGRAM_BOT_USERNAME || 'MySaaSBookkeeper_bot';
     const deepLink = `https://t.me/${botUsername}?start=${tokenRecord.token}`;
 

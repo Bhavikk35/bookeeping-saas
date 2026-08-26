@@ -76,7 +76,10 @@ export default function IntegrationsPage() {
       const res = await fetch('/api/telegram/generate-link', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ businessId: bizId }),
+        body: JSON.stringify({
+          businessId: bizId,
+          businessName: currentBusiness?.business_name || 'My Business Workspace',
+        }),
       });
       const data = await res.json();
       if (data.success && data.deepLink) {
