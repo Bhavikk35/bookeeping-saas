@@ -404,16 +404,6 @@ export async function createTelegramConnection(
 
   if (supabase) {
     try {
-      const { data: existing } = await supabase
-        .from('telegram_connections')
-        .select('*')
-        .eq('telegram_chat_id', telegramChatId)
-        .single();
-
-      if (existing && existing.business_id !== businessId) {
-        throw new Error('This Telegram account is already connected to another business workspace.');
-      }
-
       const { data: conn } = await supabase
         .from('telegram_connections')
         .upsert({
@@ -429,14 +419,7 @@ export async function createTelegramConnection(
         .single();
 
       if (conn) return conn;
-    } catch (e: any) {
-      if (e.message?.includes('already connected')) throw e;
-    }
-  }
-
-  const existingChat = inMemoryDB.telegramConnections.get(telegramChatId);
-  if (existingChat && existingChat.business_id !== businessId && existingChat.status === 'active') {
-    throw new Error('This Telegram account is already connected to another business workspace.');
+    } catch (e: any) {}
   }
 
   const connection: TelegramConnection = {
@@ -450,6 +433,7 @@ export async function createTelegramConnection(
     last_message_at: now,
   };
 
+  // Re-bind / update chat connection to the active workspace
   inMemoryDB.telegramConnections.set(telegramChatId, connection);
   inMemoryDB.saveToDisk();
   return connection;
