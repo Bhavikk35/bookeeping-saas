@@ -284,7 +284,8 @@ export async function getBusiness(businessId: string): Promise<Business | null> 
 
 // TELEGRAM CONNECTION LOGIC
 export async function createTelegramToken(businessId: string, businessName?: string): Promise<TelegramConnectionToken> {
-  const token = `connect_${crypto.randomUUID().replace(/-/g, '')}`;
+  const cleanBizId = businessId.replace(/[^a-zA-Z0-9]/g, '');
+  const token = `connect_${cleanBizId}_${crypto.randomUUID().replace(/-/g, '')}`;
   const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
   const now = new Date().toISOString();
 
@@ -350,15 +351,30 @@ export async function verifyAndConsumeTelegramToken(token: string): Promise<Tele
 
   let tokenObj = inMemoryDB.telegramTokens.get(token);
   if (!tokenObj) {
-    const allBizs = Array.from(inMemoryDB.businesses.values());
-    const targetBiz =
-      allBizs.find((b) => !b.id.includes('aaaa1111') && !b.id.includes('bbbb2222') && !b.id.includes('cccc3333')) ||
-      allBizs.find((b) => b.business_name.toLowerCase().includes('bhavik')) ||
-      allBizs[allBizs.length - 1];
+    // Extract target business_id directly from self-describing token string: connect_<clean_biz_id>_<uuid>
+    let targetBiz: Business | undefined;
+    if (token.startsWith('connect_')) {
+      const parts = token.split('_');
+      if (parts.length >= 3) {
+        const cleanIdFromToken = parts.slice(1, parts.length - 1).join('_');
+        targetBiz = Array.from(inMemoryDB.businesses.values()).find(
+          (b) => b.id === cleanIdFromToken || b.id.replace(/[^a-zA-Z0-9]/g, '') === cleanIdFromToken
+        );
+      }
+    }
+
+    if (!targetBiz) {
+      const customBizs = Array.from(inMemoryDB.businesses.values()).filter(
+        (b) => !b.id.includes('aaaa1111') && !b.id.includes('bbbb2222') && !b.id.includes('cccc3333')
+      );
+      targetBiz = customBizs[customBizs.length - 1] || Array.from(inMemoryDB.businesses.values())[0];
+    }
+
+    const resolvedBizId = targetBiz ? targetBiz.id : 'biz_active_tenant';
 
     tokenObj = {
       id: `tok_${token}`,
-      business_id: targetBiz ? targetBiz.id : 'biz_aaaa1111-1111-1111-1111-111111111111',
+      business_id: resolvedBizId,
       token,
       expires_at: new Date(Date.now() + 86400000).toISOString(),
       used_at: now.toISOString(),
