@@ -383,7 +383,7 @@ export async function processTelegramWebhookUpdate(update: any): Promise<{ succe
     `• <b>Amount:</b> ${savedTx.currency === 'INR' ? '₹' : '$'}${savedTx.amount}\n` +
     `• <b>Category:</b> ${savedTx.category}\n` +
     `• <b>Workspace:</b> ${business.business_name}\n\n` +
-    `<i>Synced to Google Sheets & Web Dashboard in real-time. Type <b>/history</b> for daily log or <b>/summary</b> for stats.</i>`;
+    `<i>Synced to Auto-Ledger & Web Dashboard in real-time. Instant Excel (.xlsx) & PDF downloads available on dashboard.</i>`;
 
   await sendTelegramMessage(chatId, confirmMessage);
 

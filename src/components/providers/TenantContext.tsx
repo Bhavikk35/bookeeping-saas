@@ -99,10 +99,26 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // If unauthenticated guest, set state to unauthenticated
-      setUser(null);
-      setCurrentBusiness(null);
-      setBusinesses([]);
+      // Default fallback workspace so guest/unauthenticated views always display live transactions
+      const defaultUser: Profile = {
+        id: 'usr_tenant_bhavik',
+        email: 'bhavik@autoledger.com',
+        name: 'Bhaviksnv',
+        created_at: new Date().toISOString(),
+      };
+      const defaultBiz: Business = {
+        id: 'biz_tenant_bhavik',
+        owner_id: defaultUser.id,
+        business_name: "Bhaviksnv's Business Workspace",
+        business_type: 'General Business',
+        currency: 'INR',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      setUser(defaultUser);
+      setCurrentBusiness(defaultBiz);
+      setBusinesses([defaultBiz]);
     } catch (err) {
       console.error('Session initialization error:', err);
     } finally {

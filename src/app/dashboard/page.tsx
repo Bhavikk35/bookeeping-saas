@@ -19,6 +19,9 @@ import {
   Sparkles,
 } from 'lucide-react';
 
+import { exportToExcel, exportToPDF } from '@/lib/export/report-exporter';
+import { FileText, Download } from 'lucide-react';
+
 export default function DashboardOverviewPage() {
   const { currentBusiness } = useTenant();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -33,7 +36,8 @@ export default function DashboardOverviewPage() {
   const fetchDashboardData = async (bizId: string) => {
     setLoading(true);
 
-    const cacheKey = `autoledger_txs_${bizId}`;
+    const targetId = bizId || 'biz_tenant_bhavik';
+    const cacheKey = `autoledger_txs_${targetId}`;
     let localTxs: Transaction[] = [];
 
     const cached = localStorage.getItem(cacheKey);
@@ -63,10 +67,9 @@ export default function DashboardOverviewPage() {
     }
 
     try {
-      const res = await fetch(`/api/transactions/list?businessId=${bizId}`);
+      const res = await fetch(`/api/transactions/list?businessId=${targetId}`);
       const data = await res.json();
       if (data.success && Array.isArray(data.transactions)) {
-        // Merge server transactions with local transactions so cold starts NEVER wipe data
         const map = new Map<string, Transaction>();
         localTxs.forEach((t) => map.set(t.id, t));
         data.transactions.forEach((t: Transaction) => map.set(t.id, t));
@@ -103,10 +106,20 @@ export default function DashboardOverviewPage() {
   };
 
   useEffect(() => {
-    if (currentBusiness?.id) {
-      fetchDashboardData(currentBusiness.id);
-    }
+    const bizId = currentBusiness?.id || 'biz_tenant_bhavik';
+    fetchDashboardData(bizId);
   }, [currentBusiness?.id]);
+
+  const handleExportExcel = () => {
+    const bizName = currentBusiness?.business_name || "Bhaviksnv's Business Workspace";
+    exportToExcel(transactions, bizName);
+  };
+
+  const handleExportPDF = () => {
+    const bizName = currentBusiness?.business_name || "Bhaviksnv's Business Workspace";
+    const curr = currentBusiness?.currency || 'INR';
+    exportToPDF(transactions, metrics || {}, bizName, curr);
+  };
 
   const handleSimulateTelegramMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -171,10 +184,26 @@ export default function DashboardOverviewPage() {
             </p>
           </div>
 
-          <div className="w-full md:w-auto flex flex-col sm:flex-row gap-3">
+          <div className="w-full md:w-auto flex flex-wrap items-center gap-2.5">
+            <button
+              onClick={handleExportExcel}
+              className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold text-xs border border-slate-700 transition-all shadow-md"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              Download Excel (.xlsx)
+            </button>
+
+            <button
+              onClick={handleExportPDF}
+              className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-400 font-bold text-xs border border-slate-700 transition-all shadow-md"
+            >
+              <FileText className="w-4 h-4" />
+              Download PDF Report
+            </button>
+
             <Link
               href="/dashboard/integrations"
-              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500 text-slate-950 font-semibold hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/20 text-sm"
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500 text-slate-950 font-semibold hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/20 text-xs"
             >
               <Send className="w-4 h-4" />
               Connect Telegram Bot
