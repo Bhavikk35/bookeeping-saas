@@ -13,11 +13,14 @@ import {
   Pie,
   Cell,
 } from 'recharts';
-import { BarChart3, PieChart as PieIcon, Award, AlertCircle } from 'lucide-react';
+import { BarChart3, PieChart as PieIcon, Award, AlertCircle, FileSpreadsheet, FileText } from 'lucide-react';
+import { exportToExcel, exportToPDF } from '@/lib/export/report-exporter';
+import { Transaction } from '@/lib/types';
 
 export default function AnalyticsPage() {
   const { currentBusiness } = useTenant();
   const [metrics, setMetrics] = useState<any>(null);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -26,10 +29,23 @@ export default function AnalyticsPage() {
     fetch(`/api/transactions/list?businessId=${currentBusiness.id}`)
       .then((res) => res.json())
       .then((data) => {
-        if (data.success) setMetrics(data.metrics);
+        if (data.success) {
+          setMetrics(data.metrics);
+          setTransactions(data.transactions || []);
+        }
       })
       .finally(() => setLoading(false));
   }, [currentBusiness?.id]);
+
+  const handleExportExcel = () => {
+    if (!currentBusiness || transactions.length === 0) return;
+    exportToExcel(transactions, currentBusiness.business_name);
+  };
+
+  const handleExportPDF = () => {
+    if (!currentBusiness || transactions.length === 0) return;
+    exportToPDF(transactions, metrics, currentBusiness.business_name, currentBusiness.currency);
+  };
 
   const symbol = currentBusiness?.currency === 'INR' ? '₹' : '$';
 
@@ -44,11 +60,32 @@ export default function AnalyticsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h3 className="text-xl font-extrabold text-white tracking-tight">Financial Analytics & Insights</h3>
-        <p className="text-xs text-slate-400">
-          Visual breakdowns for {currentBusiness?.business_name}
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h3 className="text-xl font-extrabold text-white tracking-tight">Financial Analytics & Insights</h3>
+          <p className="text-xs text-slate-400">
+            Visual breakdowns for {currentBusiness?.business_name}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={handleExportExcel}
+            disabled={transactions.length === 0}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-emerald-400 font-semibold text-xs rounded-xl border border-slate-700/80 transition-all disabled:opacity-50"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            Excel Ledger
+          </button>
+          <button
+            onClick={handleExportPDF}
+            disabled={transactions.length === 0}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-sky-400 font-semibold text-xs rounded-xl border border-slate-700/80 transition-all disabled:opacity-50"
+          >
+            <FileText className="w-3.5 h-3.5" />
+            PDF Report
+          </button>
+        </div>
       </div>
 
       {/* Top Cards */}

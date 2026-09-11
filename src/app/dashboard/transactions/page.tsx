@@ -9,11 +9,14 @@ import {
   PlusCircle,
   Send,
   FileSpreadsheet,
+  FileText,
+  Download,
   X,
   Search,
   Calendar,
   CheckCircle2,
 } from 'lucide-react';
+import { exportToExcel, exportToPDF } from '@/lib/export/report-exporter';
 
 export default function TransactionsPage() {
   const { currentBusiness } = useTenant();
@@ -150,10 +153,31 @@ export default function TransactionsPage() {
 
   const categories = Array.from(new Set(transactions.map((t) => t.category)));
 
+  const handleExportExcel = () => {
+    if (!currentBusiness || filteredTransactions.length === 0) return;
+    exportToExcel(filteredTransactions, currentBusiness.business_name);
+  };
+
+  const handleExportPDF = async () => {
+    if (!currentBusiness || filteredTransactions.length === 0) return;
+    try {
+      const res = await fetch(`/api/transactions/list?businessId=${currentBusiness.id}`);
+      const data = await res.json();
+      exportToPDF(
+        filteredTransactions,
+        data.metrics || {},
+        currentBusiness.business_name,
+        currentBusiness.currency
+      );
+    } catch (e) {
+      exportToPDF(filteredTransactions, {}, currentBusiness.business_name, currentBusiness.currency);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header Controls */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-white tracking-tight">Transaction History</h2>
           <p className="text-slate-400 text-xs mt-1">
@@ -161,13 +185,33 @@ export default function TransactionsPage() {
           </p>
         </div>
 
-        <button
-          onClick={() => setModalOpen(true)}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-sm rounded-xl transition-all shadow-lg shadow-emerald-500/20"
-        >
-          <PlusCircle className="w-4 h-4" />
-          Add Transaction
-        </button>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            onClick={handleExportExcel}
+            disabled={filteredTransactions.length === 0}
+            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-emerald-400 font-semibold text-xs rounded-xl border border-slate-700/80 transition-all disabled:opacity-50"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            Export Excel (.xlsx)
+          </button>
+
+          <button
+            onClick={handleExportPDF}
+            disabled={filteredTransactions.length === 0}
+            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-sky-400 font-semibold text-xs rounded-xl border border-slate-700/80 transition-all disabled:opacity-50"
+          >
+            <FileText className="w-3.5 h-3.5" />
+            Export PDF Report
+          </button>
+
+          <button
+            onClick={() => setModalOpen(true)}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-xs rounded-xl transition-all shadow-lg shadow-emerald-500/20"
+          >
+            <PlusCircle className="w-4 h-4" />
+            Add Transaction
+          </button>
+        </div>
       </div>
 
       {/* Filter Bar */}

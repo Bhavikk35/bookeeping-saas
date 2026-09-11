@@ -5,6 +5,8 @@ import { useTenant } from '@/components/providers/TenantContext';
 import {
   Send,
   FileSpreadsheet,
+  FileText,
+  Download,
   CheckCircle2,
   AlertCircle,
   ExternalLink,
@@ -13,6 +15,7 @@ import {
   Check,
   Globe,
 } from 'lucide-react';
+import { exportToExcel, exportToPDF } from '@/lib/export/report-exporter';
 
 export default function IntegrationsPage() {
   const { currentBusiness } = useTenant();
@@ -153,12 +156,38 @@ export default function IntegrationsPage() {
     }
   };
 
+  const handleExportExcel = async () => {
+    if (!currentBusiness?.id) return;
+    try {
+      const res = await fetch(`/api/transactions/list?businessId=${currentBusiness.id}`);
+      const data = await res.json();
+      if (data.success && Array.isArray(data.transactions)) {
+        exportToExcel(data.transactions, currentBusiness.business_name);
+      }
+    } catch (err) {
+      console.error('Failed to export Excel:', err);
+    }
+  };
+
+  const handleExportPDF = async () => {
+    if (!currentBusiness?.id) return;
+    try {
+      const res = await fetch(`/api/transactions/list?businessId=${currentBusiness.id}`);
+      const data = await res.json();
+      if (data.success && Array.isArray(data.transactions)) {
+        exportToPDF(data.transactions, data.metrics || {}, currentBusiness.business_name, currentBusiness.currency);
+      }
+    } catch (err) {
+      console.error('Failed to export PDF:', err);
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-5xl">
       <div>
         <h3 className="text-xl font-extrabold text-white tracking-tight">Integrations & Connections</h3>
         <p className="text-xs text-slate-400">
-          Manage Telegram bot deep-links, Google Sheets sync, and public webhooks for {currentBusiness?.business_name}
+          Manage Telegram bot deep-links, Auto-Ledger reports, and public webhooks for {currentBusiness?.business_name}
         </p>
       </div>
 
@@ -237,7 +266,7 @@ export default function IntegrationsPage() {
           </div>
         </div>
 
-        {/* 2. GOOGLE SHEETS CARD */}
+        {/* 2. AUTO-LEDGER SHEET & EXPORT CARD */}
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-sm flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-4">
@@ -246,49 +275,56 @@ export default function IntegrationsPage() {
                   <FileSpreadsheet className="w-5 h-5" />
                 </div>
                 <div>
-                  <h4 className="text-sm font-bold text-white">Google Sheets Sync</h4>
-                  <p className="text-xs text-slate-400">Personal Account OAuth</p>
+                  <h4 className="text-sm font-bold text-white">Auto-Ledger & Downloads</h4>
+                  <p className="text-xs text-emerald-400 font-medium">Automatic Internal Ledger Active</p>
                 </div>
               </div>
 
-              <span
-                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold ${
-                  googleStatus?.connected
-                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                    : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                }`}
-              >
-                {googleStatus?.connected ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
-                {googleStatus?.connected ? 'Connected' : 'Not Connected'}
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Ready
               </span>
             </div>
 
             <p className="text-xs text-slate-300 leading-relaxed mb-4">
-              Connect your Google Account to automatically append new transactions as structured rows in your business ledger.
+              No personal Google OAuth connection required! AutoLedger automatically maintains your business workspace ledger in our secure database. Download your isolated financial reports in 1-click below:
             </p>
 
-            {googleStatus?.spreadsheetUrl && (
-              <div className="p-3 bg-slate-950 border border-slate-800 rounded-2xl space-y-1 mb-4">
-                <p className="text-[11px] font-semibold text-slate-400">Active Spreadsheet:</p>
-                <a
-                  href={googleStatus.spreadsheetUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs font-mono text-emerald-400 hover:underline flex items-center gap-1 truncate"
-                >
-                  Open Business Sheet <ExternalLink className="w-3.5 h-3.5" />
-                </a>
-              </div>
-            )}
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <button
+                onClick={handleExportExcel}
+                className="p-3 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-2xl flex items-center gap-2.5 transition-all group"
+              >
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center group-hover:scale-105 transition-transform">
+                  <FileSpreadsheet className="w-4 h-4" />
+                </div>
+                <div className="text-left">
+                  <p className="text-xs font-bold text-white">Excel Ledger</p>
+                  <p className="text-[10px] text-slate-400">Download .xlsx</p>
+                </div>
+              </button>
+
+              <button
+                onClick={handleExportPDF}
+                className="p-3 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-2xl flex items-center gap-2.5 transition-all group"
+              >
+                <div className="w-8 h-8 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-400 flex items-center justify-center group-hover:scale-105 transition-transform">
+                  <FileText className="w-4 h-4" />
+                </div>
+                <div className="text-left">
+                  <p className="text-xs font-bold text-white">PDF Report</p>
+                  <p className="text-[10px] text-slate-400">Download .pdf</p>
+                </div>
+              </button>
+            </div>
           </div>
 
           <div className="pt-4 border-t border-slate-800 flex items-center justify-between">
+            <span className="text-[11px] text-slate-400">Optional Google Sheets OAuth:</span>
             <button
               onClick={handleConnectGoogle}
-              className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs px-4 py-2.5 rounded-xl transition-all flex items-center gap-1.5 shadow-md shadow-emerald-500/20"
+              className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs px-3 py-1.5 rounded-xl transition-all border border-slate-700"
             >
-              <FileSpreadsheet className="w-3.5 h-3.5" />
-              {googleStatus?.connected ? 'Reconnect Google Account' : 'Connect Google Sheets'}
+              {googleStatus?.connected ? 'Google Connected' : 'Connect Google Sheet'}
             </button>
           </div>
         </div>
