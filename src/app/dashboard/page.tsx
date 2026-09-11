@@ -414,25 +414,42 @@ export default function DashboardOverviewPage() {
           </div>
 
           <div className="bg-slate-900/40 border border-slate-800/60 rounded-xl p-5">
-            <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">Quick Test Phrases</h4>
-            <ul className="text-xs text-slate-400 space-y-1.5 font-mono">
+            <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">Multilingual Test Phrases</h4>
+            <ul className="text-xs text-slate-400 space-y-2 font-sans">
               <li
-                onClick={() => setSimText('Meduvada sold for 40rs')}
-                className="cursor-pointer hover:text-emerald-300 transition-colors"
+                onClick={() => setSimText('Vadapav 50 rs la vikla')}
+                className="cursor-pointer hover:text-emerald-300 transition-colors flex items-center gap-1.5"
               >
-                • "Meduvada sold for 40rs"
+                <span className="text-[10px] font-bold text-sky-400 bg-sky-500/10 px-1.5 py-0.5 rounded">Marathi</span>
+                <span>"Vadapav 50 rs la vikla"</span>
               </li>
               <li
-                onClick={() => setSimText('Apple sold for 100rs')}
-                className="cursor-pointer hover:text-emerald-300 transition-colors"
+                onClick={() => setSimText('वडापाव ५० रुपयात विकला')}
+                className="cursor-pointer hover:text-emerald-300 transition-colors flex items-center gap-1.5"
               >
-                • "Apple sold for 100rs"
+                <span className="text-[10px] font-bold text-sky-400 bg-sky-500/10 px-1.5 py-0.5 rounded">मराठी</span>
+                <span>"वडापाव ५० रुपयात विकला"</span>
               </li>
               <li
-                onClick={() => setSimText('Daily total counter sale 4500 rupees')}
-                className="cursor-pointer hover:text-emerald-300 transition-colors"
+                onClick={() => setSimText('50 rupaye ki chai bechi')}
+                className="cursor-pointer hover:text-emerald-300 transition-colors flex items-center gap-1.5"
               >
-                • "Daily total counter sale 4500 rupees"
+                <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">Hindi</span>
+                <span>"50 rupaye ki chai bechi"</span>
+              </li>
+              <li
+                onClick={() => setSimText('Batate 400 rs la ghetle')}
+                className="cursor-pointer hover:text-emerald-300 transition-colors flex items-center gap-1.5"
+              >
+                <span className="text-[10px] font-bold text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded">Purchase</span>
+                <span>"Batate 400 rs la ghetle"</span>
+              </li>
+              <li
+                onClick={() => setSimText('Aloo bhajiya sold for ₹50')}
+                className="cursor-pointer hover:text-emerald-300 transition-colors flex items-center gap-1.5"
+              >
+                <span className="text-[10px] font-bold text-purple-400 bg-purple-500/10 px-1.5 py-0.5 rounded">English</span>
+                <span>"Aloo bhajiya sold for ₹50"</span>
               </li>
             </ul>
           </div>
