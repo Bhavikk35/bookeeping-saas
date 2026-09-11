@@ -49,10 +49,14 @@ export default function LoginPage() {
     setSubmitting(true);
 
     try {
-      await signIn(email, password);
-      router.push('/dashboard');
+      const res = await signIn(email, password);
+      if (res && !res.success) {
+        setErrorMsg(res.error || 'Invalid email or password. Please check your credentials.');
+      } else {
+        router.push('/dashboard');
+      }
     } catch (err: any) {
-      router.push('/dashboard');
+      setErrorMsg(err.message || 'Invalid login credentials. Please try again.');
     } finally {
       setSubmitting(false);
     }

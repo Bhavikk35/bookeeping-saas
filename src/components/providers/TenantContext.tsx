@@ -143,6 +143,10 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
       return { success: false, error: 'Please enter your email address and password.' };
     }
 
+    if (passwordInput.length < 6) {
+      return { success: false, error: 'Invalid password. Password must be at least 6 characters.' };
+    }
+
     try {
       // 1. Attempt Supabase Auth Sign In if configured
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -150,7 +154,11 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         password: passwordInput,
       });
 
-      if (!error && data.user) {
+      if (error) {
+        return { success: false, error: error.message || 'Invalid email or password. Please check your credentials.' };
+      }
+
+      if (data?.user) {
         const rawName =
           data.user.user_metadata?.name ||
           data.user.user_metadata?.full_name ||
@@ -185,7 +193,9 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
 
         return { success: true };
       }
-    } catch (e) {}
+    } catch (e: any) {
+      return { success: false, error: e.message || 'Invalid credentials. Please try again.' };
+    }
 
     // Fallback Account Authentication Engine for local testing/offline
     const slug = cleanEmail.split('@')[0];

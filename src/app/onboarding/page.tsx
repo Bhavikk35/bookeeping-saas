@@ -241,52 +241,27 @@ function OnboardingForm() {
           </div>
         )}
 
-        {/* STEP 2: CONNECT GOOGLE SHEETS */}
+        {/* STEP 2: AUTO-LEDGER SETUP */}
         {step === 2 && (
           <div>
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-400">
-                <FileSpreadsheet className="w-5 h-5" />
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                <CheckCircle2 className="w-5 h-5" />
               </div>
               <div>
-                <h2 className="text-xl font-bold text-white">Step 2: Connect Google Sheets</h2>
-                <p className="text-xs text-slate-400">Connect your Google Account to create a live ledger sheet</p>
+                <h2 className="text-xl font-bold text-white">Step 2: Internal Auto-Ledger Active</h2>
+                <p className="text-xs text-slate-400">Database ledger ready with 1-click Excel & PDF exports</p>
               </div>
             </div>
 
-            <div className="bg-slate-950 border border-slate-800 rounded-2xl p-6 my-6 text-center">
-              {googleConnected && spreadsheetUrl ? (
-                <div className="space-y-3">
-                  <div className="w-12 h-12 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto">
-                    <CheckCircle2 className="w-6 h-6" />
-                  </div>
-                  <h3 className="text-lg font-bold text-white">✓ Google Sheets connected</h3>
-                  <p className="text-xs text-slate-400">
-                    A dedicated spreadsheet <code className="text-emerald-400">Bookkeeping Ledger - {businessName}</code> has been initialized.
-                  </p>
-                  <a
-                    href={spreadsheetUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-xs text-emerald-400 hover:underline font-medium"
-                  >
-                    Open Connected Google Sheet <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <p className="text-sm text-slate-300">
-                    Connect your own Google account via OAuth. All transactions recorded via Telegram or web will automatically sync as rows in your personal ledger sheet.
-                  </p>
-                  <button
-                    onClick={handleConnectGoogle}
-                    className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm px-6 py-3 rounded-xl transition-all inline-flex items-center gap-2 shadow-lg shadow-emerald-500/20"
-                  >
-                    <FileSpreadsheet className="w-4 h-4" />
-                    Connect Google Account
-                  </button>
-                </div>
-              )}
+            <div className="bg-slate-950 border border-slate-800 rounded-2xl p-6 my-6 text-center space-y-3">
+              <div className="w-12 h-12 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto">
+                <CheckCircle2 className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-bold text-white">✓ Isolated Business Ledger Ready</h3>
+              <p className="text-xs text-slate-300 max-w-md mx-auto leading-relaxed">
+                AutoLedger automatically logs all transactions for <code className="text-emerald-400 font-bold">{businessName}</code> directly in your isolated database ledger. No personal Google OAuth connection required! You can download your complete ledger as Excel (.xlsx) or PDF anytime from your dashboard.
+              </p>
             </div>
 
             <div className="flex items-center justify-between pt-2">
