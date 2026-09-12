@@ -141,73 +141,67 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
       return { success: false, error: 'Invalid password. Password must be at least 6 characters.' };
     }
 
+    // 1. Try fetching registered user and workspace from backend API
     try {
-      // 1. Attempt Supabase Auth Sign In if configured
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: cleanEmail,
-        password: passwordInput,
+      const apiRes = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail, password: passwordInput }),
       });
+      const apiData = await apiRes.json();
 
-      if (!error && data?.user) {
-        const rawName =
-          data.user.user_metadata?.name ||
-          data.user.user_metadata?.full_name ||
-          cleanEmail.split('@')[0];
-        const displayName = rawName.charAt(0).toUpperCase() + rawName.slice(1);
-        const bizName = data.user.user_metadata?.business_name || `${displayName}'s Workspace`;
+      if (apiData.success && apiData.user && apiData.business) {
+        // Check if local registered account registry has a specific custom business name saved
+        const regAccountsStr = localStorage.getItem('auto_ledger_registered_accounts');
+        let finalBiz = apiData.business;
+        let finalUser = apiData.user;
 
-        const authUser: Profile = {
-          id: data.user.id,
-          email: cleanEmail,
-          name: displayName,
-          created_at: data.user.created_at,
-        };
+        if (regAccountsStr) {
+          try {
+            const regMap = JSON.parse(regAccountsStr);
+            if (regMap[cleanEmail]) {
+              finalUser = regMap[cleanEmail].user || finalUser;
+              finalBiz = regMap[cleanEmail].business || finalBiz;
+            }
+          } catch (e) {}
+        }
 
-        const authBiz: Business = {
-          id: `biz_${data.user.id.substring(0, 12)}`,
-          owner_id: authUser.id,
-          business_name: bizName,
-          business_type: 'General Business',
-          currency: 'INR',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
-
-        setUser(authUser);
-        setCurrentBusiness(authBiz);
-        setBusinesses([authBiz]);
-        sessionStorage.setItem('auto_ledger_user', JSON.stringify(authUser));
-        sessionStorage.setItem('auto_ledger_biz', JSON.stringify(authBiz));
-        localStorage.setItem('auto_ledger_user', JSON.stringify(authUser));
-        localStorage.setItem('auto_ledger_biz', JSON.stringify(authBiz));
-
+        setUser(finalUser);
+        setCurrentBusiness(finalBiz);
+        setBusinesses([finalBiz]);
+        sessionStorage.setItem('auto_ledger_user', JSON.stringify(finalUser));
+        sessionStorage.setItem('auto_ledger_biz', JSON.stringify(finalBiz));
+        localStorage.setItem('auto_ledger_user', JSON.stringify(finalUser));
+        localStorage.setItem('auto_ledger_biz', JSON.stringify(finalBiz));
         return { success: true };
       }
-    } catch (e: any) {}
+    } catch (e) {}
 
-    // 2. Fallback Account Authentication Engine for created/demo accounts
+    // 2. Fallback Account Engine using local accounts registry
     const slug = cleanEmail.replace(/[^a-zA-Z0-9]/g, '_');
     const rawName = cleanEmail.split('@')[0];
     const name = rawName.charAt(0).toUpperCase() + rawName.slice(1);
 
-    // Check if custom business name was saved during signUp
-    let customBizName = `${name}'s Workspace`;
-    const storedBizJson = localStorage.getItem('auto_ledger_biz');
-    if (storedBizJson) {
-      try {
-        const parsed = JSON.parse(storedBizJson);
-        if (parsed.owner_id === `usr_${slug}` && parsed.business_name) {
-          customBizName = parsed.business_name;
-        }
-      } catch (e) {}
-    }
-
-    const fallbackUser: Profile = {
+    let customBizName = `${name}'s Business Workspace`;
+    let fallbackUser: Profile = {
       id: `usr_${slug}`,
       email: cleanEmail,
       name,
       created_at: new Date().toISOString(),
     };
+
+    const regAccountsStr = localStorage.getItem('auto_ledger_registered_accounts');
+    if (regAccountsStr) {
+      try {
+        const regMap = JSON.parse(regAccountsStr);
+        if (regMap[cleanEmail]) {
+          if (regMap[cleanEmail].user) fallbackUser = regMap[cleanEmail].user;
+          if (regMap[cleanEmail].business?.business_name) {
+            customBizName = regMap[cleanEmail].business.business_name;
+          }
+        }
+      } catch (e) {}
+    }
 
     const fallbackBiz: Business = {
       id: `biz_tenant_${slug}`,
@@ -239,7 +233,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
   ) => {
     const cleanEmail = emailInput.trim().toLowerCase();
     const cleanName = nameInput.trim() || cleanEmail.split('@')[0];
-    const cleanBizName = businessNameInput.trim() || `${cleanName}'s Workspace`;
+    const cleanBizName = businessNameInput.trim() || `${cleanName}'s Business Workspace`;
 
     const slug = cleanEmail.replace(/[^a-zA-Z0-9]/g, '_');
     const newUser: Profile = {
@@ -263,17 +257,25 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem(`autoledger_txs_${newBiz.id}`);
     sessionStorage.removeItem(`autoledger_txs_${newBiz.id}`);
 
-    // Try Supabase Auth silently in background
+    // Register into local persistent account map
     try {
-      await supabase.auth.signUp({
-        email: cleanEmail,
-        password: passwordInput,
-        options: {
-          data: {
-            name: cleanName,
-            business_name: cleanBizName,
-          },
-        },
+      const regAccountsStr = localStorage.getItem('auto_ledger_registered_accounts') || '{}';
+      const regMap = JSON.parse(regAccountsStr);
+      regMap[cleanEmail] = { user: newUser, business: newBiz };
+      localStorage.setItem('auto_ledger_registered_accounts', JSON.stringify(regMap));
+    } catch (e) {}
+
+    // Register into backend API asynchronously
+    try {
+      await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: cleanEmail,
+          password: passwordInput,
+          name: cleanName,
+          businessName: cleanBizName,
+        }),
       });
     } catch (e) {}
 

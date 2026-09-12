@@ -49,7 +49,7 @@ export default function InsightsPage() {
       <div>
         <h2 className="text-xl font-black text-[#17211C] tracking-tight">Business Insights</h2>
         <p className="text-xs text-[#66736C] mt-0.5">
-          Simple financial trends & analytics for {currentBusiness?.business_name || "Bhavik's Workspace"}
+          Simple financial trends & analytics for {currentBusiness?.business_name || 'My Business Workspace'}
         </p>
       </div>
 

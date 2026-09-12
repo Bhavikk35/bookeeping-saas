@@ -32,7 +32,7 @@ export default function TelegramConnectPage() {
   const [copied, setCopied] = useState(false);
 
   const fetchStatus = async () => {
-    const bizId = currentBusiness?.id || 'biz_tenant_bhavik';
+    const bizId = currentBusiness?.id || 'biz_tenant_active';
     setStatusLoading(true);
     try {
       const res = await fetch(`/api/telegram/status?businessId=${bizId}`);
@@ -55,7 +55,7 @@ export default function TelegramConnectPage() {
   }, [currentBusiness?.id]);
 
   const handleGenerateLink = async () => {
-    const bizId = currentBusiness?.id || 'biz_tenant_bhavik';
+    const bizId = currentBusiness?.id || 'biz_tenant_active';
     const bizName = currentBusiness?.business_name || 'My Business Workspace';
     setLoading(true);
     try {

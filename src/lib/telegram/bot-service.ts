@@ -166,7 +166,7 @@ export async function processTelegramWebhookUpdate(update: any): Promise<{ succe
       const existingBiz = await getBusiness(existingConn.business_id);
       const activeMsg =
         `✅ <b>Account Connected!</b>\n\n` +
-        `Your Telegram chat is active for <b>${existingBiz?.business_name || "Bhaviksnv's Business Workspace"}</b>.\n\n` +
+        `Your Telegram chat is active for <b>${existingBiz?.business_name || 'My Business Workspace'}</b>.\n\n` +
         `• Send transactions via text or 🎙️ <b>Voice Notes</b>, e.g.: <i>"Daily total counter sale 4500 rupees"</i>\n` +
         `• Send <b>/history</b> or <b>/today</b> to view today's transaction list in chat!\n` +
         `• Send <b>/summary</b> or <b>/stats</b> to see your financial analytics report!`;

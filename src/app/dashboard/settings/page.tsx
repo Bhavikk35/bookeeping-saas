@@ -19,7 +19,7 @@ import {
 export default function SettingsPage() {
   const { user, currentBusiness, setCurrentBusiness } = useTenant();
 
-  const [bizName, setBizName] = useState(currentBusiness?.business_name || 'Bhavik Kirana Mart');
+  const [bizName, setBizName] = useState(currentBusiness?.business_name || 'My Business Workspace');
   const [bizType, setBizType] = useState(currentBusiness?.business_type || 'Retail');
   const [currency, setCurrency] = useState(currentBusiness?.currency || 'INR');
   const [language, setLanguage] = useState('en');
@@ -48,7 +48,7 @@ export default function SettingsPage() {
   const handleGenerateTelegramLink = async () => {
     setIsGenerating(true);
     try {
-      const bizId = currentBusiness?.id || 'biz_tenant_bhavik';
+      const bizId = currentBusiness?.id || 'biz_tenant_active';
       const res = await fetch('/api/telegram/generate-link', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

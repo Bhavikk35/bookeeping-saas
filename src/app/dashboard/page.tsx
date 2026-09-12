@@ -206,7 +206,7 @@ export default function DashboardOverviewPage() {
           <h2 className="text-xl font-black text-[#17211C] tracking-tight">Business Overview</h2>
           <p className="text-xs text-[#66736C] mt-0.5">
             Real-time financial position for{' '}
-            <span className="font-bold text-[#168A55]">{currentBusiness?.business_name || "Bhavik's Workspace"}</span>
+            <span className="font-bold text-[#168A55]">{currentBusiness?.business_name || 'My Business Workspace'}</span>
           </p>
         </div>
 

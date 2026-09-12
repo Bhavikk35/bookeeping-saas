@@ -198,7 +198,7 @@ function OnboardingForm() {
                       required
                       value={ownerName}
                       onChange={(e) => setOwnerName(e.target.value)}
-                      placeholder="e.g. Bhavik Sharma"
+                      placeholder="e.g. Rahul Sharma"
                       className="w-full bg-[#F7F9F8] border border-[#E2E8E4] rounded-xl pl-10 pr-4 py-2.5 text-sm text-[#17211C] focus:outline-none focus:border-[#168A55]"
                     />
                   </div>
@@ -254,7 +254,7 @@ function OnboardingForm() {
                       required
                       value={businessName}
                       onChange={(e) => setBusinessName(e.target.value)}
-                      placeholder="e.g. Bhavik Kirana Mart"
+                      placeholder="e.g. Rahul's Bakery & Cafe"
                       className="w-full bg-[#F7F9F8] border border-[#E2E8E4] rounded-xl pl-10 pr-4 py-2.5 text-sm text-[#17211C] focus:outline-none focus:border-[#168A55]"
                     />
                   </div>

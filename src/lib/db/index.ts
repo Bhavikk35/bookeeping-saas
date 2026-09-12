@@ -81,40 +81,40 @@ class InMemoryStore {
   }
 
   private seedDemoData() {
-    // Primary User Workspace: Bhaviksnv's Business Workspace
-    const userBhavik: Profile = {
-      id: 'usr_tenant_bhavik',
-      email: 'owner.bhavik@autoledger.com',
-      name: 'Bhavna Sharma',
+    // Default Demo Workspace for Guest View
+    const userDemo: Profile = {
+      id: 'usr_tenant_demo',
+      email: 'owner.demo@autoledger.com',
+      name: 'Business Owner',
       created_at: new Date(Date.now() - 30 * 86400000).toISOString(),
     };
-    const bizBhavik: Business = {
-      id: 'biz_tenant_bhavik',
-      owner_id: userBhavik.id,
-      business_name: "Bhaviksnv's Business Workspace",
+    const bizDemo: Business = {
+      id: 'biz_tenant_demo',
+      owner_id: userDemo.id,
+      business_name: 'My Business Workspace',
       business_type: 'General Business',
       currency: 'INR',
       created_at: new Date(Date.now() - 30 * 86400000).toISOString(),
       updated_at: new Date().toISOString(),
     };
-    const memberBhavik: BusinessMember = {
-      id: 'mem_bhavik',
-      business_id: bizBhavik.id,
-      user_id: userBhavik.id,
+    const memberDemo: BusinessMember = {
+      id: 'mem_demo',
+      business_id: bizDemo.id,
+      user_id: userDemo.id,
       role: 'owner',
-      created_at: bizBhavik.created_at,
+      created_at: bizDemo.created_at,
     };
 
-    this.profiles.set(userBhavik.id, userBhavik);
-    this.businesses.set(bizBhavik.id, bizBhavik);
-    this.members.set(memberBhavik.id, memberBhavik);
+    this.profiles.set(userDemo.id, userDemo);
+    this.businesses.set(bizDemo.id, bizDemo);
+    this.members.set(memberDemo.id, memberDemo);
 
     const tgConnA: TelegramConnection = {
       id: 'tg_conn_a',
-      business_id: bizBhavik.id,
+      business_id: bizDemo.id,
       telegram_user_id: '100001',
       telegram_chat_id: '900001',
-      telegram_username: 'bhavik_user',
+      telegram_username: 'demo_user',
       connected_at: new Date().toISOString(),
       status: 'active',
       last_message_at: new Date().toISOString(),
@@ -123,8 +123,8 @@ class InMemoryStore {
 
     const googA: GoogleConnection = {
       id: 'goog_conn_a',
-      business_id: bizBhavik.id,
-      google_user_id: 'google_user_bhavik',
+      business_id: bizDemo.id,
+      google_user_id: 'google_user_demo',
       spreadsheet_id: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms',
       spreadsheet_url: 'https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit',
       access_token: 'mock_access_token_a',
