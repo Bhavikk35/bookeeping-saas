@@ -663,7 +663,9 @@ export async function getBusinessTransactions(
     } catch (e) {}
   }
 
-  let txs = Array.from(inMemoryDB.transactions.values());
+  let txs = Array.from(inMemoryDB.transactions.values()).filter(
+    (t) => t.business_id === businessId
+  );
 
   if (filters?.date) txs = txs.filter((t) => t.transaction_date === filters.date);
   if (filters?.type) txs = txs.filter((t) => t.transaction_type === filters.type);

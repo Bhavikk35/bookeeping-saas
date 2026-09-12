@@ -25,9 +25,15 @@ import {
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { user, businesses, currentBusiness, setCurrentBusiness, logout } = useTenant();
+  const { user, loading, businesses, currentBusiness, setCurrentBusiness, logout } = useTenant();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [tenantDropdownOpen, setTenantDropdownOpen] = useState(false);
+
+  React.useEffect(() => {
+    if (!loading && !user && pathname?.startsWith('/dashboard')) {
+      window.location.href = '/login';
+    }
+  }, [user, loading, pathname]);
 
   const navItems = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
