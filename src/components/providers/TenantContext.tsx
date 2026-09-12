@@ -44,7 +44,23 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
   const initializeTenantSession = async () => {
     setLoading(true);
     try {
-      // 1. Check Supabase Auth session first
+      // 1. Check SessionStorage or LocalStorage FIRST for active signed-up account session
+      const storedUserJson =
+        sessionStorage.getItem('auto_ledger_user') || localStorage.getItem('auto_ledger_user');
+      const storedBizJson =
+        sessionStorage.getItem('auto_ledger_biz') || localStorage.getItem('auto_ledger_biz');
+
+      if (storedUserJson && storedBizJson) {
+        const parsedUser: Profile = JSON.parse(storedUserJson);
+        const parsedBiz: Business = JSON.parse(storedBizJson);
+        setUser(parsedUser);
+        setCurrentBusiness(parsedBiz);
+        setBusinesses([parsedBiz]);
+        setLoading(false);
+        return;
+      }
+
+      // 2. Check Supabase Auth session if no local session exists
       const { data: authData } = await supabase.auth.getUser();
       if (authData?.user) {
         const email = authData.user.email || 'user@workspace.com';
@@ -83,27 +99,11 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // 2. Check SessionStorage or LocalStorage for active saved account session
-      const storedUserJson =
-        sessionStorage.getItem('auto_ledger_user') || localStorage.getItem('auto_ledger_user');
-      const storedBizJson =
-        sessionStorage.getItem('auto_ledger_biz') || localStorage.getItem('auto_ledger_biz');
-
-      if (storedUserJson && storedBizJson) {
-        const parsedUser: Profile = JSON.parse(storedUserJson);
-        const parsedBiz: Business = JSON.parse(storedBizJson);
-        setUser(parsedUser);
-        setCurrentBusiness(parsedBiz);
-        setBusinesses([parsedBiz]);
-        setLoading(false);
-        return;
-      }
-
-      // Default fallback workspace so guest/unauthenticated views display workspace structure without forcing active user session
+      // Default fallback workspace for guest views
       const defaultBiz: Business = {
-        id: 'biz_tenant_bhavik',
-        owner_id: 'usr_tenant_bhavik',
-        business_name: "Bhaviksnv's Business Workspace",
+        id: 'biz_tenant_demo',
+        owner_id: 'usr_tenant_demo',
+        business_name: 'My Business Workspace',
         business_type: 'General Business',
         currency: 'INR',
         created_at: new Date().toISOString(),

@@ -57,7 +57,7 @@ export default function DashboardOverviewPage() {
 
   const fetchDashboardData = async (bizId: string) => {
     setLoading(true);
-    const targetId = bizId || 'biz_tenant_bhavik';
+    const targetId = bizId || 'biz_tenant_demo';
     const cacheKey = `autoledger_txs_${targetId}`;
     let localTxs: Transaction[] = [];
 
@@ -92,7 +92,7 @@ export default function DashboardOverviewPage() {
   };
 
   useEffect(() => {
-    const bizId = currentBusiness?.id || 'biz_tenant_bhavik';
+    const bizId = currentBusiness?.id || 'biz_tenant_demo';
     fetchDashboardData(bizId);
   }, [currentBusiness?.id]);
 
@@ -102,7 +102,7 @@ export default function DashboardOverviewPage() {
     setIsSubmitting(true);
 
     try {
-      const bizId = currentBusiness?.id || 'biz_tenant_bhavik';
+      const bizId = currentBusiness?.id || 'biz_tenant_demo';
       const res = await fetch('/api/transactions/manual', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -92,7 +92,9 @@ function OnboardingForm() {
 
   // Step 2: Generate Telegram Deep Link
   const handleGenerateTelegramLink = async () => {
-    const bizId = businessId || 'biz_tenant_bhavik';
+    const cleanEmail = email.trim().toLowerCase();
+    const slug = cleanEmail.replace(/[^a-zA-Z0-9]/g, '_');
+    const bizId = businessId || `biz_tenant_${slug}`;
     setIsGeneratingLink(true);
 
     try {

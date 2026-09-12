@@ -4,7 +4,7 @@ import { getTelegramConnectionForBusiness } from '@/lib/db';
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const businessId = searchParams.get('businessId') || 'biz_tenant_bhavik';
+    const businessId = searchParams.get('businessId') || 'biz_tenant_demo';
 
     const connection = await getTelegramConnectionForBusiness(businessId);
     const botUsername = process.env.TELEGRAM_BOT_USERNAME || 'MySaaSBookkeeper_bot';

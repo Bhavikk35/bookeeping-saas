@@ -3,7 +3,7 @@ import { getBusinessTransactions, getBusinessFinancialMetrics } from '@/lib/db';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const businessId = searchParams.get('businessId') || 'biz_tenant_bhavik';
+  const businessId = searchParams.get('businessId') || 'biz_tenant_demo';
   const date = searchParams.get('date') || undefined;
   const type = searchParams.get('type') || undefined;
   const category = searchParams.get('category') || undefined;

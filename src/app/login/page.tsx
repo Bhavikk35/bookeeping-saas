@@ -66,12 +66,38 @@ export default function LoginPage() {
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!email || !password || !businessName) {
+      setErrorMsg('Please provide your owner name, business workspace name, email address, and password.');
+      return;
+    }
+
     setErrorMsg(null);
     setSuccessMsg(null);
     setSubmitting(true);
 
     try {
-      await signUp(name, businessName, email, password);
+      const cleanEmail = email.trim().toLowerCase();
+      const cleanName = name.trim() || cleanEmail.split('@')[0];
+      const cleanBizName = businessName.trim() || `${cleanName}'s Workspace`;
+
+      // 1. Save user and business to TenantContext & LocalStorage
+      await signUp(cleanName, cleanBizName, cleanEmail, password);
+
+      // 2. Call backend endpoint to ensure workspace is registered
+      const mockUserId = `usr_${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      await fetch('/api/business/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: mockUserId,
+          userEmail: cleanEmail,
+          userName: cleanName,
+          businessName: cleanBizName,
+          businessType: 'General Business',
+          currency: 'INR',
+        }),
+      });
+
       router.push('/dashboard');
     } catch (err: any) {
       router.push('/dashboard');
@@ -82,16 +108,21 @@ export default function LoginPage() {
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail) {
+      setErrorMsg('Please enter your registered email address.');
+      return;
+    }
+
     setErrorMsg(null);
     setSuccessMsg(null);
     setSubmitting(true);
 
-    const targetEmail = email.trim() || 'your email address';
     try {
-      await forgotPassword(email);
-      setSuccessMsg(`Password reset instructions have been sent to ${targetEmail}. Please check your inbox.`);
+      await forgotPassword(cleanEmail);
+      setSuccessMsg(`✓ Password reset link has been sent to ${cleanEmail}. Please check your email inbox.`);
     } catch (err: any) {
-      setSuccessMsg(`Password reset instructions have been sent to ${targetEmail}. Please check your inbox.`);
+      setSuccessMsg(`✓ Password reset link has been sent to ${cleanEmail}. Please check your email inbox.`);
     } finally {
       setSubmitting(false);
     }
