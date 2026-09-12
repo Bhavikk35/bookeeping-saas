@@ -3,7 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useTenant } from '@/components/providers/TenantContext';
-import { Transaction } from '@/lib/types';
+import { Transaction, TransactionType } from '@/lib/types';
+import { exportToExcel, exportToPDF } from '@/lib/export/report-exporter';
 import {
   TrendingUp,
   TrendingDown,
@@ -13,14 +14,17 @@ import {
   Clock,
   Send,
   FileSpreadsheet,
+  FileText,
   Receipt,
-  AlertCircle,
   PlusCircle,
-  Sparkles,
+  Search,
+  CheckCircle2,
+  Calendar,
+  X,
+  UserCheck,
+  AlertCircle,
+  Filter,
 } from 'lucide-react';
-
-import { exportToExcel, exportToPDF } from '@/lib/export/report-exporter';
-import { FileText, Download } from 'lucide-react';
 
 export default function DashboardOverviewPage() {
   const { currentBusiness } = useTenant();
@@ -28,14 +32,31 @@ export default function DashboardOverviewPage() {
   const [metrics, setMetrics] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  // Quick Telegram Simulator state
-  const [simText, setSimText] = useState('');
-  const [isSimulating, setIsSimulating] = useState(false);
-  const [simResponse, setSimResponse] = useState<string | null>(null);
+  // Time Period Filter State: Today | This Week | This Month | Custom
+  const [period, setPeriod] = useState<'today' | 'week' | 'month' | 'all'>('today');
+
+  // Filter & Search States
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedType, setSelectedType] = useState<string>('all');
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+
+  // Add Transaction Modal State
+  const [modalOpen, setModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formData, setFormData] = useState({
+    transaction_type: 'sale' as TransactionType,
+    item: '',
+    amount: '',
+    quantity: '1',
+    category: 'General',
+    customer_name: '',
+    supplier_name: '',
+    payment_status: 'paid',
+    description: '',
+  });
 
   const fetchDashboardData = async (bizId: string) => {
     setLoading(true);
-
     const targetId = bizId || 'biz_tenant_bhavik';
     const cacheKey = `autoledger_txs_${targetId}`;
     let localTxs: Transaction[] = [];
@@ -45,24 +66,6 @@ export default function DashboardOverviewPage() {
       try {
         localTxs = JSON.parse(cached);
         setTransactions(localTxs);
-
-        // Pre-calculate metrics from local cache for instant UI response
-        const todayStr = new Date().toISOString().split('T')[0];
-        let todaySales = 0;
-        let todayExpenses = 0;
-        localTxs.forEach((tx) => {
-          const amt = Number(tx.amount) || 0;
-          if (tx.transaction_date === todayStr) {
-            if (tx.transaction_type === 'sale') todaySales += amt;
-            if (tx.transaction_type === 'expense' || tx.transaction_type === 'purchase') todayExpenses += amt;
-          }
-        });
-        setMetrics({
-          todaySales,
-          todayExpenses,
-          netCashFlow: todaySales - todayExpenses,
-          transactionCount: localTxs.length,
-        });
       } catch (e) {}
     }
 
@@ -79,24 +82,7 @@ export default function DashboardOverviewPage() {
 
         setTransactions(merged);
         localStorage.setItem(cacheKey, JSON.stringify(merged));
-
-        const todayStr = new Date().toISOString().split('T')[0];
-        let todaySales = 0;
-        let todayExpenses = 0;
-        merged.forEach((tx) => {
-          const amt = Number(tx.amount) || 0;
-          if (tx.transaction_date === todayStr) {
-            if (tx.transaction_type === 'sale') todaySales += amt;
-            if (tx.transaction_type === 'expense' || tx.transaction_type === 'purchase') todayExpenses += amt;
-          }
-        });
-
-        setMetrics({
-          todaySales: data.metrics?.todaySales || todaySales,
-          todayExpenses: data.metrics?.todayExpenses || todayExpenses,
-          netCashFlow: (data.metrics?.todaySales || todaySales) - (data.metrics?.todayExpenses || todayExpenses),
-          transactionCount: merged.length,
-        });
+        setMetrics(data.metrics);
       }
     } catch (err) {
       console.error('Error loading dashboard data:', err);
@@ -110,351 +96,487 @@ export default function DashboardOverviewPage() {
     fetchDashboardData(bizId);
   }, [currentBusiness?.id]);
 
-  const handleExportExcel = () => {
-    const bizName = currentBusiness?.business_name || "Bhaviksnv's Business Workspace";
-    exportToExcel(transactions, bizName);
-  };
-
-  const handleExportPDF = () => {
-    const bizName = currentBusiness?.business_name || "Bhaviksnv's Business Workspace";
-    const curr = currentBusiness?.currency || 'INR';
-    exportToPDF(transactions, metrics || {}, bizName, curr);
-  };
-
-  const handleSimulateTelegramMessage = async (e: React.FormEvent) => {
+  const handleManualAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!simText.trim()) return;
-    setIsSimulating(true);
-    setSimResponse(null);
+    if (!formData.item || !formData.amount) return;
+    setIsSubmitting(true);
 
     try {
-      const targetBizId = currentBusiness?.id || 'biz_tenant_bhavik';
-      const chatId = `chat_${targetBizId}`;
-      const res = await fetch('/api/telegram/webhook', {
+      const bizId = currentBusiness?.id || 'biz_tenant_bhavik';
+      const res = await fetch('/api/transactions/manual', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          update_id: Date.now(),
-          business_id: targetBizId,
-          message: {
-            message_id: Date.now(),
-            business_id: targetBizId,
-            from: { id: 100001, first_name: 'Owner', username: 'owner_user' },
-            chat: { id: chatId, first_name: 'Owner Chat', type: 'private' },
-            date: Math.floor(Date.now() / 1000),
-            text: simText,
-          },
+          business_id: bizId,
+          transaction_type: formData.transaction_type,
+          amount: parseFloat(formData.amount),
+          currency: currentBusiness?.currency || 'INR',
+          item: formData.item,
+          quantity: parseInt(formData.quantity) || 1,
+          category: formData.category,
+          customer_name: formData.customer_name || undefined,
+          supplier_name: formData.supplier_name || undefined,
+          payment_status: formData.payment_status,
+          description: formData.description,
+          transaction_date: new Date().toISOString().split('T')[0],
+          source: 'web_manual',
         }),
       });
 
       const data = await res.json();
-      if (data.success) {
-        setSimResponse(data.responseMessage || 'Transaction recorded via Telegram!');
-        setSimText('');
-        if (currentBusiness?.id) {
-          fetchDashboardData(currentBusiness.id);
-        }
-      } else {
-        setSimResponse(`Error: ${data.error || data.responseMessage || 'Simulation failed'}`);
+      if (data.success && data.transaction) {
+        const newTx = data.transaction;
+        const cacheKey = `autoledger_txs_${bizId}`;
+        const updatedList = [newTx, ...transactions];
+        setTransactions(updatedList);
+        localStorage.setItem(cacheKey, JSON.stringify(updatedList));
+
+        setModalOpen(false);
+        setFormData({
+          transaction_type: 'sale',
+          item: '',
+          amount: '',
+          quantity: '1',
+          category: 'General',
+          customer_name: '',
+          supplier_name: '',
+          payment_status: 'paid',
+          description: '',
+        });
       }
-    } catch (err: any) {
-      setSimResponse(`Error: ${err.message}`);
+    } catch (err) {
+      console.error('Error adding transaction manually:', err);
     } finally {
-      setIsSimulating(false);
+      setIsSubmitting(false);
     }
   };
 
+  // Filtered transactions calculation
+  const filteredTransactions = transactions.filter((tx) => {
+    const matchesType = selectedType === 'all' || tx.transaction_type === selectedType;
+    const matchesCategory =
+      selectedCategory === 'all' || tx.category.toLowerCase() === selectedCategory.toLowerCase();
+    const matchesSearch =
+      searchQuery === '' ||
+      tx.item.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      tx.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (tx.description && tx.description.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (tx.customer_name && tx.customer_name.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (tx.supplier_name && tx.supplier_name.toLowerCase().includes(searchQuery.toLowerCase()));
+
+    return matchesType && matchesCategory && matchesSearch;
+  });
+
+  // Calculate totals based on selected period
+  const todayStr = new Date().toISOString().split('T')[0];
+  let periodSales = 0;
+  let periodExpenses = 0;
+  let moneyToCollect = 0;
+  let moneyToPay = 0;
+
+  transactions.forEach((tx) => {
+    const amt = Number(tx.amount) || 0;
+    const isToday = tx.transaction_date === todayStr;
+
+    if (period === 'today') {
+      if (isToday) {
+        if (tx.transaction_type === 'sale') periodSales += amt;
+        if (tx.transaction_type === 'expense' || tx.transaction_type === 'purchase') periodExpenses += amt;
+      }
+    } else {
+      if (tx.transaction_type === 'sale') periodSales += amt;
+      if (tx.transaction_type === 'expense' || tx.transaction_type === 'purchase') periodExpenses += amt;
+    }
+
+    if (tx.transaction_type === 'receivable' || (tx.transaction_type === 'sale' && tx.payment_status === 'pending')) {
+      moneyToCollect += amt;
+    } else if (tx.transaction_type === 'payable' || (tx.transaction_type === 'purchase' && tx.payment_status === 'pending')) {
+      moneyToPay += amt;
+    }
+  });
+
+  const netCashFlow = periodSales - periodExpenses;
+  const categories = Array.from(new Set(transactions.map((t) => t.category)));
+
   return (
-    <div className="space-y-8">
-      {/* Business Workspace Banner */}
-      <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 relative overflow-hidden backdrop-blur-xl">
-        <div className="absolute -right-10 -bottom-10 w-48 h-48 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+    <div className="space-y-6">
+      {/* Top Controls Header: Time Period Control & Primary Action */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-black text-[#17211C] tracking-tight">Business Overview</h2>
+          <p className="text-xs text-[#66736C] mt-0.5">
+            Real-time financial position for{' '}
+            <span className="font-bold text-[#168A55]">{currentBusiness?.business_name || "Bhavik's Workspace"}</span>
+          </p>
+        </div>
 
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                ⚡ Live Telegram Conversational Bookkeeping
-              </span>
-            </div>
-            <h2 className="text-2xl font-bold text-white tracking-tight">Record transactions via Telegram</h2>
-            <p className="text-slate-400 text-sm mt-1 max-w-2xl">
-              Send messages like <span className="text-emerald-300 font-mono">"Aloo bhajiya sold for ₹50"</span> or{' '}
-              <span className="text-emerald-300 font-mono">"Bought 10 kg potatoes for ₹400"</span> to update your ledger in real-time.
-            </p>
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Time Period Filter Pills */}
+          <div className="bg-white border border-[#E2E8E4] p-1 rounded-xl flex items-center shadow-xs">
+            {(['today', 'week', 'month', 'all'] as const).map((p) => (
+              <button
+                key={p}
+                onClick={() => setPeriod(p)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all capitalize ${
+                  period === p
+                    ? 'bg-[#168A55] text-white shadow-xs'
+                    : 'text-[#66736C] hover:text-[#17211C]'
+                }`}
+              >
+                {p === 'today' ? "Today" : p === 'week' ? "This Week" : p === 'month' ? "This Month" : "All Time"}
+              </button>
+            ))}
           </div>
 
-          <div className="w-full md:w-auto flex flex-wrap items-center gap-2.5">
-            <button
-              onClick={handleExportExcel}
-              className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold text-xs border border-slate-700 transition-all shadow-md"
-            >
-              <FileSpreadsheet className="w-4 h-4" />
-              Download Excel (.xlsx)
-            </button>
-
-            <button
-              onClick={handleExportPDF}
-              className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-400 font-bold text-xs border border-slate-700 transition-all shadow-md"
-            >
-              <FileText className="w-4 h-4" />
-              Download PDF Report
-            </button>
-
-            <Link
-              href="/dashboard/integrations"
-              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500 text-slate-950 font-semibold hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/20 text-xs"
-            >
-              <Send className="w-4 h-4" />
-              Connect Telegram Bot
-            </Link>
-          </div>
+          <button
+            onClick={() => setModalOpen(true)}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-[#168A55] hover:bg-[#0D5C3A] text-white font-bold text-xs rounded-xl transition-all shadow-sm shrink-0"
+          >
+            <PlusCircle className="w-4 h-4" />
+            + Add Transaction
+          </button>
         </div>
       </div>
 
-      {/* Metrics Cards Grid */}
+      {/* Primary KPI Overview Cards (Green, Amber, Red Visual System) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        {/* Today's Sales */}
-        <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl p-5 backdrop-blur-md">
+        {/* Today's / Period Revenue */}
+        <div className="bg-white border border-[#E2E8E4] rounded-2xl p-5 shadow-xs relative overflow-hidden">
           <div className="flex items-center justify-between">
-            <span className="text-slate-400 text-xs font-medium uppercase tracking-wider">Today's Sales</span>
-            <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400">
+            <span className="text-[#66736C] text-[11px] font-bold uppercase tracking-wider">
+              {period === 'today' ? "Today's Revenue" : "Total Revenue"}
+            </span>
+            <div className="p-2 rounded-xl bg-[#EAF7F0] text-[#168A55] border border-[#168A55]/20">
               <TrendingUp className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-3">
-            <h3 className="text-2xl font-bold text-white">
-              {loading && !metrics ? '...' : `₹${metrics?.todaySales?.toLocaleString('en-IN') || 0}`}
+            <h3 className="text-2xl font-black text-[#168A55] tracking-tight">
+              {loading ? '...' : `₹${periodSales.toLocaleString('en-IN')}`}
             </h3>
-            <p className="text-xs text-emerald-400 mt-1 flex items-center gap-1 font-medium">
-              <ArrowUpRight className="w-3 h-3" /> Live Daily Revenue
+            <p className="text-[11px] text-[#168A55] font-semibold mt-1 flex items-center gap-1">
+              <ArrowUpRight className="w-3 h-3" /> Money Coming In
             </p>
           </div>
         </div>
 
-        {/* Today's Expenses */}
-        <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl p-5 backdrop-blur-md">
+        {/* Expenses */}
+        <div className="bg-white border border-[#E2E8E4] rounded-2xl p-5 shadow-xs relative overflow-hidden">
           <div className="flex items-center justify-between">
-            <span className="text-slate-400 text-xs font-medium uppercase tracking-wider">Today's Expenses</span>
-            <div className="p-2 rounded-lg bg-rose-500/10 text-rose-400">
+            <span className="text-[#66736C] text-[11px] font-bold uppercase tracking-wider">
+              {period === 'today' ? "Today's Expenses" : "Total Expenses"}
+            </span>
+            <div className="p-2 rounded-xl bg-slate-100 text-[#66736C]">
               <TrendingDown className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-3">
-            <h3 className="text-2xl font-bold text-white">
-              {loading && !metrics ? '...' : `₹${metrics?.todayExpenses?.toLocaleString('en-IN') || 0}`}
+            <h3 className="text-2xl font-black text-[#17211C] tracking-tight">
+              {loading ? '...' : `₹${periodExpenses.toLocaleString('en-IN')}`}
             </h3>
-            <p className="text-xs text-rose-400 mt-1 flex items-center gap-1 font-medium">
-              <ArrowDownRight className="w-3 h-3" /> Live Daily Outflow
+            <p className="text-[11px] text-[#66736C] font-semibold mt-1 flex items-center gap-1">
+              <ArrowDownRight className="w-3 h-3" /> Outflow & Expenses
             </p>
           </div>
         </div>
 
         {/* Net Cash Flow */}
-        <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl p-5 backdrop-blur-md">
+        <div className="bg-white border border-[#E2E8E4] rounded-2xl p-5 shadow-xs relative overflow-hidden">
           <div className="flex items-center justify-between">
-            <span className="text-slate-400 text-xs font-medium uppercase tracking-wider">Net Cash Flow</span>
-            <div className="p-2 rounded-lg bg-cyan-500/10 text-cyan-400">
+            <span className="text-[#66736C] text-[11px] font-bold uppercase tracking-wider">Net Cash Flow</span>
+            <div className="p-2 rounded-xl bg-[#EAF7F0] text-[#168A55]">
               <DollarSign className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-3">
-            <h3 className={`text-2xl font-bold ${(metrics?.netCashFlow || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {loading && !metrics ? '...' : `₹${metrics?.netCashFlow?.toLocaleString('en-IN') || 0}`}
+            <h3 className={`text-2xl font-black tracking-tight ${netCashFlow >= 0 ? 'text-[#168A55]' : 'text-red-600'}`}>
+              {loading ? '...' : `₹${netCashFlow.toLocaleString('en-IN')}`}
             </h3>
-            <p className="text-xs text-slate-400 mt-1 font-medium">Total Sales - Expenses</p>
+            <p className="text-[11px] text-[#66736C] font-semibold mt-1">Revenue minus Expenses</p>
           </div>
         </div>
 
-        {/* Receivables */}
-        <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl p-5 backdrop-blur-md">
+        {/* Money to Collect (Amber Attention State) */}
+        <div className="bg-white border border-[#E2E8E4] rounded-2xl p-5 shadow-xs relative overflow-hidden">
           <div className="flex items-center justify-between">
-            <span className="text-slate-400 text-xs font-medium uppercase tracking-wider">Receivables</span>
-            <div className="p-2 rounded-lg bg-amber-500/10 text-amber-400">
+            <span className="text-[#66736C] text-[11px] font-bold uppercase tracking-wider">Money to Collect</span>
+            <div className="p-2 rounded-xl bg-amber-50 text-[#D97706] border border-amber-200">
               <Clock className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-3">
-            <h3 className="text-2xl font-bold text-amber-400">
-              {loading && !metrics ? '...' : `₹${metrics?.totalReceivables?.toLocaleString('en-IN') || 0}`}
+            <h3 className="text-2xl font-black text-[#D97706] tracking-tight">
+              {loading ? '...' : `₹${moneyToCollect.toLocaleString('en-IN')}`}
             </h3>
-            <p className="text-xs text-slate-400 mt-1 font-medium">Customers owe you</p>
+            <p className="text-[11px] text-[#D97706] font-semibold mt-1">Customers owe you</p>
           </div>
         </div>
 
-        {/* Payables */}
-        <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl p-5 backdrop-blur-md">
+        {/* Money to Pay */}
+        <div className="bg-white border border-[#E2E8E4] rounded-2xl p-5 shadow-xs relative overflow-hidden">
           <div className="flex items-center justify-between">
-            <span className="text-slate-400 text-xs font-medium uppercase tracking-wider">Payables</span>
-            <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400">
+            <span className="text-[#66736C] text-[11px] font-bold uppercase tracking-wider">Money to Pay</span>
+            <div className="p-2 rounded-xl bg-slate-100 text-[#66736C]">
               <DollarSign className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-3">
-            <h3 className="text-2xl font-bold text-indigo-400">
-              {loading && !metrics ? '...' : `₹${metrics?.totalPayables?.toLocaleString('en-IN') || 0}`}
+            <h3 className="text-2xl font-black text-[#17211C] tracking-tight">
+              {loading ? '...' : `₹${moneyToPay.toLocaleString('en-IN')}`}
             </h3>
-            <p className="text-xs text-slate-400 mt-1 font-medium">You owe suppliers</p>
+            <p className="text-[11px] text-[#66736C] font-semibold mt-1">You owe suppliers</p>
           </div>
         </div>
       </div>
 
-      {/* Quick Telegram Test Box & Recent Transactions */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Recent Transactions List */}
-        <div className="lg:col-span-2 space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-lg font-semibold text-white">Recent Transactions</h3>
-              <p className="text-xs text-slate-400">Live ledger entries from Telegram & Web</p>
-            </div>
-            <Link
-              href="/dashboard/transactions"
-              className="text-xs font-medium text-emerald-400 hover:text-emerald-300 transition-colors"
-            >
-              View All Transactions →
-            </Link>
+      {/* Telegram Assistant Quick Callout Box */}
+      <div className="bg-white border border-[#E2E8E4] rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
+        <div className="flex items-center gap-3.5">
+          <div className="w-10 h-10 rounded-xl bg-[#EAF7F0] border border-[#168A55]/20 text-[#168A55] flex items-center justify-center shrink-0">
+            <Send className="w-5 h-5" />
+          </div>
+          <div>
+            <h4 className="text-sm font-bold text-[#17211C]">Telegram Voice & Text Assistant Active</h4>
+            <p className="text-xs text-[#66736C] mt-0.5">
+              Send messages like <span className="font-mono text-[#168A55] font-bold">"Vadapav 50 rs la vikla"</span> or{' '}
+              <span className="font-mono text-[#168A55] font-bold">"Batate 400 rs la ghetle"</span> to record transactions automatically.
+            </p>
+          </div>
+        </div>
+
+        <a
+          href="https://t.me/MySaaSBookkeeper_bot"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="px-4 py-2 bg-[#EAF7F0] hover:bg-[#168A55] text-[#168A55] hover:text-white font-bold text-xs rounded-xl transition-all border border-[#168A55]/20 shrink-0 inline-flex items-center gap-1.5"
+        >
+          <Send className="w-3.5 h-3.5" /> Open Telegram Bot
+        </a>
+      </div>
+
+      {/* Recent Transactions List with Search & Filters */}
+      <div className="bg-white border border-[#E2E8E4] rounded-2xl p-6 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-[#E2E8E4]">
+          <div>
+            <h3 className="text-base font-extrabold text-[#17211C]">Recent Transactions</h3>
+            <p className="text-xs text-[#66736C]">All transactions recorded via Telegram, Voice Notes, or Web</p>
           </div>
 
-          <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl overflow-hidden backdrop-blur-md">
-            {loading && transactions.length === 0 ? (
-              <div className="p-8 text-center text-slate-400 text-sm">Loading ledger data...</div>
-            ) : transactions.length === 0 ? (
-              <div className="p-12 text-center">
-                <Receipt className="w-10 h-10 text-slate-600 mx-auto mb-3" />
-                <p className="text-slate-300 font-medium text-sm">No transactions recorded yet</p>
-                <p className="text-slate-500 text-xs mt-1 max-w-sm mx-auto">
-                  Send a message to your Telegram bot or use the simulator on the right to add your first transaction.
-                </p>
-              </div>
-            ) : (
-              <div className="divide-y divide-slate-800/60">
-                {transactions.slice(0, 8).map((tx) => (
-                  <div key={tx.id} className="p-4 flex items-center justify-between hover:bg-slate-800/30 transition-colors">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`w-9 h-9 rounded-lg flex items-center justify-center font-bold text-xs ${
-                          tx.transaction_type === 'sale'
-                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                            : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                        }`}
-                      >
-                        {tx.transaction_type === 'sale' ? 'SALE' : 'EXP'}
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-semibold text-white">{tx.item}</h4>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <span className="text-xs text-slate-400">{tx.category}</span>
-                          <span className="text-slate-600">•</span>
-                          <span className="text-xs text-slate-500">{tx.transaction_date}</span>
-                          <span className="text-slate-600">•</span>
-                          <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-slate-800 text-slate-300 border border-slate-700">
-                            {tx.source}
-                          </span>
-                        </div>
-                      </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Search Input */}
+            <div className="relative w-full sm:w-60">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-[#66736C]" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search transactions..."
+                className="w-full pl-9 pr-3 py-1.5 bg-[#F7F9F8] border border-[#E2E8E4] rounded-lg text-xs text-[#17211C] placeholder-[#66736C] focus:outline-none focus:border-[#168A55]"
+              />
+            </div>
+
+            {/* Type Filter */}
+            <select
+              value={selectedType}
+              onChange={(e) => setSelectedType(e.target.value)}
+              className="px-3 py-1.5 bg-[#F7F9F8] border border-[#E2E8E4] rounded-lg text-xs font-semibold text-[#17211C] focus:outline-none focus:border-[#168A55]"
+            >
+              <option value="all">All Types</option>
+              <option value="sale">Sales</option>
+              <option value="expense">Expenses</option>
+              <option value="purchase">Purchases</option>
+              <option value="money_received">Money Received</option>
+              <option value="money_paid">Money Paid</option>
+              <option value="receivable">Receivables</option>
+              <option value="payable">Payables</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Transactions Table / List */}
+        {loading && transactions.length === 0 ? (
+          <div className="py-12 text-center text-xs text-[#66736C]">Loading transactions...</div>
+        ) : filteredTransactions.length === 0 ? (
+          <div className="py-12 text-center space-y-2">
+            <Receipt className="w-10 h-10 text-[#66736C] mx-auto opacity-50" />
+            <p className="text-sm font-bold text-[#17211C]">No transactions found</p>
+            <p className="text-xs text-[#66736C]">Start recording transactions via Telegram or click + Add Transaction above.</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-[#E2E8E4]">
+            {filteredTransactions.slice(0, 10).map((tx) => {
+              const isSale = tx.transaction_type === 'sale' || tx.transaction_type === 'money_received';
+              const isExpense = tx.transaction_type === 'expense' || tx.transaction_type === 'purchase' || tx.transaction_type === 'money_paid';
+
+              return (
+                <div
+                  key={tx.id}
+                  className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-[#F7F9F8]/60 transition-colors px-2 rounded-lg"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-[11px] shrink-0 ${
+                        isSale
+                          ? 'bg-[#EAF7F0] text-[#168A55] border border-[#168A55]/20'
+                          : isExpense
+                          ? 'bg-slate-100 text-[#17211C] border border-[#E2E8E4]'
+                          : 'bg-amber-50 text-[#D97706] border border-amber-200'
+                      }`}
+                    >
+                      {tx.transaction_type === 'sale'
+                        ? 'SALE'
+                        : tx.transaction_type === 'expense'
+                        ? 'EXP'
+                        : tx.transaction_type === 'purchase'
+                        ? 'PURCH'
+                        : tx.transaction_type === 'money_received'
+                        ? 'RECV'
+                        : 'PAID'}
                     </div>
 
+                    <div className="min-w-0">
+                      <h4 className="text-xs font-bold text-[#17211C] truncate">{tx.item}</h4>
+                      <div className="flex flex-wrap items-center gap-2 mt-0.5 text-[11px] text-[#66736C]">
+                        <span>{tx.category || 'General'}</span>
+                        {tx.customer_name && <span>• Customer: {tx.customer_name}</span>}
+                        {tx.supplier_name && <span>• Supplier: {tx.supplier_name}</span>}
+                        <span>• {tx.transaction_date}</span>
+                        <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-slate-100 text-[#66736C]">
+                          {tx.source || 'telegram'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
                     <div className="text-right">
                       <div
-                        className={`text-sm font-bold font-mono ${
-                          tx.transaction_type === 'sale' ? 'text-emerald-400' : 'text-white'
+                        className={`text-sm font-extrabold font-mono ${
+                          isSale ? 'text-[#168A55]' : 'text-[#17211C]'
                         }`}
                       >
-                        {tx.transaction_type === 'sale' ? '+' : '-'}₹{Number(tx.amount).toLocaleString('en-IN')}
+                        {isSale ? '+' : '-'}₹{Number(tx.amount).toLocaleString('en-IN')}
                       </div>
-                      <span className="text-[10px] font-medium uppercase text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">
-                        {tx.payment_status}
+                      <span
+                        className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
+                          tx.payment_status === 'paid'
+                            ? 'bg-[#EAF7F0] text-[#168A55]'
+                            : 'bg-amber-50 text-[#D97706]'
+                        }`}
+                      >
+                        {tx.payment_status || 'paid'}
                       </span>
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
+                </div>
+              );
+            })}
           </div>
-        </div>
+        )}
+      </div>
 
-        {/* Interactive Telegram Test Simulator */}
-        <div className="space-y-4">
-          <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl p-5 backdrop-blur-md">
-            <div className="flex items-center gap-2 mb-2">
-              <Sparkles className="w-4 h-4 text-emerald-400" />
-              <h3 className="text-sm font-semibold text-white">Live AI Simulator</h3>
+      {/* Manual Transaction Entry Modal */}
+      {modalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-[#E2E8E4] rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl relative">
+            <button
+              onClick={() => setModalOpen(false)}
+              className="absolute top-4 right-4 text-[#66736C] hover:text-[#17211C] p-1"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div>
+              <h3 className="text-base font-extrabold text-[#17211C]">Add Transaction</h3>
+              <p className="text-xs text-[#66736C]">Record a business transaction directly into your Khata ledger</p>
             </div>
-            <p className="text-xs text-slate-400 mb-4">
-              Test how natural language messages are parsed into structured ledger entries.
-            </p>
 
-            <form onSubmit={handleSimulateTelegramMessage} className="space-y-3">
+            <form onSubmit={handleManualAdd} className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-[#17211C] mb-1">Type</label>
+                  <select
+                    value={formData.transaction_type}
+                    onChange={(e) => setFormData({ ...formData, transaction_type: e.target.value as any })}
+                    className="w-full px-3 py-2 bg-[#F7F9F8] border border-[#E2E8E4] rounded-xl text-xs font-semibold text-[#17211C] focus:outline-none focus:border-[#168A55]"
+                  >
+                    <option value="sale">Sale (Money In)</option>
+                    <option value="expense">Expense (Money Out)</option>
+                    <option value="purchase">Purchase</option>
+                    <option value="money_received">Money Received</option>
+                    <option value="money_paid">Money Paid</option>
+                    <option value="receivable">Receivable (Collect)</option>
+                    <option value="payable">Payable (Pay)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-[#17211C] mb-1">Amount (₹)</label>
+                  <input
+                    type="number"
+                    required
+                    value={formData.amount}
+                    onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+                    placeholder="0.00"
+                    className="w-full px-3 py-2 bg-[#F7F9F8] border border-[#E2E8E4] rounded-xl text-xs font-mono font-bold text-[#17211C] focus:outline-none focus:border-[#168A55]"
+                  />
+                </div>
+              </div>
+
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Telegram Message</label>
+                <label className="block text-xs font-semibold text-[#17211C] mb-1">Item / Description</label>
                 <input
                   type="text"
-                  value={simText}
-                  onChange={(e) => setSimText(e.target.value)}
-                  placeholder='e.g. "Meduvada sold for 40rs"'
-                  className="w-full px-3.5 py-2.5 bg-slate-950/80 border border-slate-800 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 font-sans"
+                  required
+                  value={formData.item}
+                  onChange={(e) => setFormData({ ...formData, item: e.target.value })}
+                  placeholder="e.g. Vadapav, Potatoes, Electricity Bill"
+                  className="w-full px-3 py-2 bg-[#F7F9F8] border border-[#E2E8E4] rounded-xl text-xs text-[#17211C] focus:outline-none focus:border-[#168A55]"
                 />
               </div>
 
-              <button
-                type="submit"
-                disabled={isSimulating || !simText.trim()}
-                className="w-full py-2.5 px-4 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 font-semibold rounded-lg text-sm transition-colors flex items-center justify-center gap-2"
-              >
-                {isSimulating ? 'Extracting AI Data...' : 'Simulate Telegram Message'}
-              </button>
-            </form>
-
-            {simResponse && (
-              <div className="mt-4 p-3 rounded-lg bg-slate-950 border border-slate-800 text-xs font-mono text-emerald-400 break-words">
-                {simResponse}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-[#17211C] mb-1">Party (Customer / Supplier)</label>
+                  <input
+                    type="text"
+                    value={formData.customer_name || formData.supplier_name}
+                    onChange={(e) => setFormData({ ...formData, customer_name: e.target.value, supplier_name: e.target.value })}
+                    placeholder="e.g. Rahul, Sharma Traders"
+                    className="w-full px-3 py-2 bg-[#F7F9F8] border border-[#E2E8E4] rounded-xl text-xs text-[#17211C] focus:outline-none focus:border-[#168A55]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-[#17211C] mb-1">Category</label>
+                  <input
+                    type="text"
+                    value={formData.category}
+                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                    placeholder="e.g. Food, Supplies"
+                    className="w-full px-3 py-2 bg-[#F7F9F8] border border-[#E2E8E4] rounded-xl text-xs text-[#17211C] focus:outline-none focus:border-[#168A55]"
+                  />
+                </div>
               </div>
-            )}
-          </div>
 
-          <div className="bg-slate-900/40 border border-slate-800/60 rounded-xl p-5">
-            <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">Multilingual Test Phrases</h4>
-            <ul className="text-xs text-slate-400 space-y-2 font-sans">
-              <li
-                onClick={() => setSimText('Vadapav 50 rs la vikla')}
-                className="cursor-pointer hover:text-emerald-300 transition-colors flex items-center gap-1.5"
-              >
-                <span className="text-[10px] font-bold text-sky-400 bg-sky-500/10 px-1.5 py-0.5 rounded">Marathi</span>
-                <span>"Vadapav 50 rs la vikla"</span>
-              </li>
-              <li
-                onClick={() => setSimText('वडापाव ५० रुपयात विकला')}
-                className="cursor-pointer hover:text-emerald-300 transition-colors flex items-center gap-1.5"
-              >
-                <span className="text-[10px] font-bold text-sky-400 bg-sky-500/10 px-1.5 py-0.5 rounded">मराठी</span>
-                <span>"वडापाव ५० रुपयात विकला"</span>
-              </li>
-              <li
-                onClick={() => setSimText('50 rupaye ki chai bechi')}
-                className="cursor-pointer hover:text-emerald-300 transition-colors flex items-center gap-1.5"
-              >
-                <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">Hindi</span>
-                <span>"50 rupaye ki chai bechi"</span>
-              </li>
-              <li
-                onClick={() => setSimText('Batate 400 rs la ghetle')}
-                className="cursor-pointer hover:text-emerald-300 transition-colors flex items-center gap-1.5"
-              >
-                <span className="text-[10px] font-bold text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded">Purchase</span>
-                <span>"Batate 400 rs la ghetle"</span>
-              </li>
-              <li
-                onClick={() => setSimText('Aloo bhajiya sold for ₹50')}
-                className="cursor-pointer hover:text-emerald-300 transition-colors flex items-center gap-1.5"
-              >
-                <span className="text-[10px] font-bold text-purple-400 bg-purple-500/10 px-1.5 py-0.5 rounded">English</span>
-                <span>"Aloo bhajiya sold for ₹50"</span>
-              </li>
-            </ul>
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setModalOpen(false)}
+                  className="flex-1 py-2.5 bg-slate-100 text-[#66736C] font-semibold rounded-xl text-xs hover:bg-slate-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="flex-1 py-2.5 bg-[#168A55] hover:bg-[#0D5C3A] text-white font-bold rounded-xl text-xs transition-colors shadow-sm"
+                >
+                  {isSubmitting ? 'Saving...' : 'Save Transaction'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
