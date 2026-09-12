@@ -44,7 +44,27 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
   const initializeTenantSession = async () => {
     setLoading(true);
     try {
-      // 0. Check HTTP Session Cookie first via /api/auth/me
+      // 1. Check SessionStorage or LocalStorage FIRST for active signed-up/signed-in account session
+      const storedUserJson =
+        sessionStorage.getItem('auto_ledger_user') || localStorage.getItem('auto_ledger_user');
+      const storedBizJson =
+        sessionStorage.getItem('auto_ledger_biz') || localStorage.getItem('auto_ledger_biz');
+
+      if (storedUserJson && storedBizJson) {
+        try {
+          const parsedUser: Profile = JSON.parse(storedUserJson);
+          const parsedBiz: Business = JSON.parse(storedBizJson);
+          if (parsedUser && parsedUser.id && parsedBiz && parsedBiz.id) {
+            setUser(parsedUser);
+            setCurrentBusiness(parsedBiz);
+            setBusinesses([parsedBiz]);
+            setLoading(false);
+            return;
+          }
+        } catch (e) {}
+      }
+
+      // 2. Check HTTP Session Cookie via /api/auth/me if no local session exists
       try {
         const meRes = await fetch('/api/auth/me');
         const meData = await meRes.json();
@@ -61,46 +81,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         }
       } catch (e) {}
 
-      // 1. Check SessionStorage or LocalStorage FIRST for active signed-up account session
-      const storedUserJson =
-        sessionStorage.getItem('auto_ledger_user') || localStorage.getItem('auto_ledger_user');
-      const storedBizJson =
-        sessionStorage.getItem('auto_ledger_biz') || localStorage.getItem('auto_ledger_biz');
-
-      if (storedUserJson && storedBizJson) {
-        const parsedUser: Profile = JSON.parse(storedUserJson);
-        const parsedBiz: Business = JSON.parse(storedBizJson);
-        setUser(parsedUser);
-        setCurrentBusiness(parsedBiz);
-        setBusinesses([parsedBiz]);
-        setLoading(false);
-        return;
-      }
-
-      // 1.5 Check auto_ledger_registered_accounts map in localStorage
-      const regAccountsStr = localStorage.getItem('auto_ledger_registered_accounts');
-      if (regAccountsStr) {
-        try {
-          const regMap = JSON.parse(regAccountsStr);
-          const keys = Object.keys(regMap);
-          if (keys.length > 0) {
-            const latestAccount = regMap[keys[keys.length - 1]];
-            if (latestAccount?.user && latestAccount?.business) {
-              setUser(latestAccount.user);
-              setCurrentBusiness(latestAccount.business);
-              setBusinesses([latestAccount.business]);
-              sessionStorage.setItem('auto_ledger_user', JSON.stringify(latestAccount.user));
-              sessionStorage.setItem('auto_ledger_biz', JSON.stringify(latestAccount.business));
-              localStorage.setItem('auto_ledger_user', JSON.stringify(latestAccount.user));
-              localStorage.setItem('auto_ledger_biz', JSON.stringify(latestAccount.business));
-              setLoading(false);
-              return;
-            }
-          }
-        } catch (e) {}
-      }
-
-      // 2. Check Supabase Auth session if no local session exists
+      // 3. Check Supabase Auth session if no local or cookie session exists
       const { data: authData } = await supabase.auth.getUser();
       if (authData?.user) {
         const email = authData.user.email || 'user@workspace.com';
@@ -139,20 +120,10 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // Default fallback workspace for guest views
-      const defaultBiz: Business = {
-        id: 'biz_tenant_demo',
-        owner_id: 'usr_tenant_demo',
-        business_name: 'My Business Workspace',
-        business_type: 'General Business',
-        currency: 'INR',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-
+      // Default guest state if not authenticated
       setUser(null);
-      setCurrentBusiness(defaultBiz);
-      setBusinesses([defaultBiz]);
+      setCurrentBusiness(null);
+      setBusinesses([]);
     } catch (err) {
       console.error('Session initialization error:', err);
     } finally {
@@ -181,72 +152,76 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
       return { success: false, error: 'Invalid password. Password must be at least 6 characters.' };
     }
 
-    // 1. Try fetching registered user and workspace from backend API
+    // 1. Check local registered accounts map first
+    const regAccountsStr = localStorage.getItem('auto_ledger_registered_accounts');
+    let knownUser: Profile | null = null;
+    let knownBiz: Business | null = null;
+
+    if (regAccountsStr) {
+      try {
+        const regMap = JSON.parse(regAccountsStr);
+        if (regMap[cleanEmail]) {
+          knownUser = regMap[cleanEmail].user || null;
+          knownBiz = regMap[cleanEmail].business || null;
+        }
+      } catch (e) {}
+    }
+
+    // 2. Call backend login API to establish HTTP session cookie
     try {
       const apiRes = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: cleanEmail, password: passwordInput }),
+        body: JSON.stringify({
+          email: cleanEmail,
+          password: passwordInput,
+          name: knownUser?.name,
+          businessName: knownBiz?.business_name,
+        }),
       });
       const apiData = await apiRes.json();
 
       if (apiData.success && apiData.user && apiData.business) {
-        // Check if local registered account registry has a specific custom business name saved
-        const regAccountsStr = localStorage.getItem('auto_ledger_registered_accounts');
-        let finalBiz = apiData.business;
-        let finalUser = apiData.user;
-
-        if (regAccountsStr) {
-          try {
-            const regMap = JSON.parse(regAccountsStr);
-            if (regMap[cleanEmail]) {
-              finalUser = regMap[cleanEmail].user || finalUser;
-              finalBiz = regMap[cleanEmail].business || finalBiz;
-            }
-          } catch (e) {}
-        }
+        const finalUser = knownUser || apiData.user;
+        const finalBiz = knownBiz || apiData.business;
 
         setUser(finalUser);
         setCurrentBusiness(finalBiz);
         setBusinesses([finalBiz]);
+
+        // Save to persistent storage
         sessionStorage.setItem('auto_ledger_user', JSON.stringify(finalUser));
         sessionStorage.setItem('auto_ledger_biz', JSON.stringify(finalBiz));
         localStorage.setItem('auto_ledger_user', JSON.stringify(finalUser));
         localStorage.setItem('auto_ledger_biz', JSON.stringify(finalBiz));
+
+        // Save back into registered accounts map
+        try {
+          const regMap = regAccountsStr ? JSON.parse(regAccountsStr) : {};
+          regMap[cleanEmail] = { user: finalUser, business: finalBiz };
+          localStorage.setItem('auto_ledger_registered_accounts', JSON.stringify(regMap));
+        } catch (e) {}
+
         return { success: true };
       }
     } catch (e) {}
 
-    // 2. Fallback Account Engine using local accounts registry
+    // 3. Fallback locally if API fails
     const slug = cleanEmail.replace(/[^a-zA-Z0-9]/g, '_');
     const rawName = cleanEmail.split('@')[0];
     const name = rawName.charAt(0).toUpperCase() + rawName.slice(1);
 
-    let customBizName = `${name}'s Business Workspace`;
-    let fallbackUser: Profile = {
+    const fallbackUser: Profile = knownUser || {
       id: `usr_${slug}`,
       email: cleanEmail,
       name,
       created_at: new Date().toISOString(),
     };
 
-    const regAccountsStr = localStorage.getItem('auto_ledger_registered_accounts');
-    if (regAccountsStr) {
-      try {
-        const regMap = JSON.parse(regAccountsStr);
-        if (regMap[cleanEmail]) {
-          if (regMap[cleanEmail].user) fallbackUser = regMap[cleanEmail].user;
-          if (regMap[cleanEmail].business?.business_name) {
-            customBizName = regMap[cleanEmail].business.business_name;
-          }
-        }
-      } catch (e) {}
-    }
-
-    const fallbackBiz: Business = {
+    const fallbackBiz: Business = knownBiz || {
       id: `biz_tenant_${slug}`,
       owner_id: fallbackUser.id,
-      business_name: customBizName,
+      business_name: `${name}'s Business Workspace`,
       business_type: 'General Business',
       currency: 'INR',
       created_at: new Date().toISOString(),
@@ -256,10 +231,17 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     setUser(fallbackUser);
     setCurrentBusiness(fallbackBiz);
     setBusinesses([fallbackBiz]);
+
     sessionStorage.setItem('auto_ledger_user', JSON.stringify(fallbackUser));
     sessionStorage.setItem('auto_ledger_biz', JSON.stringify(fallbackBiz));
     localStorage.setItem('auto_ledger_user', JSON.stringify(fallbackUser));
     localStorage.setItem('auto_ledger_biz', JSON.stringify(fallbackBiz));
+
+    try {
+      const regMap = regAccountsStr ? JSON.parse(regAccountsStr) : {};
+      regMap[cleanEmail] = { user: fallbackUser, business: fallbackBiz };
+      localStorage.setItem('auto_ledger_registered_accounts', JSON.stringify(regMap));
+    } catch (e) {}
 
     return { success: true };
   };
@@ -284,7 +266,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     };
 
     const newBiz: Business = {
-      id: `biz_tenant_${slug}`,
+      id: `biz_tenant_${slug}_${Date.now()}`,
       owner_id: newUser.id,
       business_name: cleanBizName,
       business_type: 'General Business',
@@ -305,7 +287,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem('auto_ledger_registered_accounts', JSON.stringify(regMap));
     } catch (e) {}
 
-    // Register into backend API asynchronously
+    // Register into backend API synchronously to establish HTTP cookie
     try {
       await fetch('/api/auth/login', {
         method: 'POST',
@@ -322,6 +304,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     setUser(newUser);
     setCurrentBusiness(newBiz);
     setBusinesses([newBiz]);
+
     sessionStorage.setItem('auto_ledger_user', JSON.stringify(newUser));
     sessionStorage.setItem('auto_ledger_biz', JSON.stringify(newBiz));
     localStorage.setItem('auto_ledger_user', JSON.stringify(newUser));
@@ -331,7 +314,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
   };
 
   // Forgot Password Request
-  const forgotPassword = async (emailInput: string) => {
+  const forgotPassword = async (emailInput: string, newPasswordInput?: string) => {
     const cleanEmail = emailInput.trim().toLowerCase();
     if (!cleanEmail) {
       return { success: false, message: '', error: 'Please enter a valid email address.' };
@@ -343,7 +326,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
 
     return {
       success: true,
-      message: `Password reset instructions have been sent to ${cleanEmail}. Please check your inbox.`,
+      message: `Password reset instructions have been set for ${cleanEmail}. You can now sign in with your account.`,
     };
   };
 

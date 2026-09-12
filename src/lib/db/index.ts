@@ -181,11 +181,16 @@ export async function createBusinessWorkspace(
   businessType: string,
   currency: string = 'INR'
 ): Promise<{ business: Business; member: BusinessMember }> {
-  // Only match existing business if owner_id AND business_name match exactly (prevent returning Bhavik's workspace for new accounts)
+  // Check if user already owns any business in inMemoryDB
   const existingBiz = Array.from(inMemoryDB.businesses.values()).find(
-    (b) => b.owner_id === userId && b.business_name.toLowerCase() === businessName.toLowerCase()
+    (b) => b.owner_id === userId
   );
   if (existingBiz) {
+    if (businessName && existingBiz.business_name !== businessName) {
+      existingBiz.business_name = businessName;
+      inMemoryDB.businesses.set(existingBiz.id, existingBiz);
+      inMemoryDB.saveToDisk();
+    }
     const existingMem = Array.from(inMemoryDB.members.values()).find(
       (m) => m.business_id === existingBiz.id && m.user_id === userId
     ) || {

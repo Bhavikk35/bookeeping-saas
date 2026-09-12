@@ -15,18 +15,29 @@ export async function POST(request: Request) {
     const userId = `usr_${slug}`;
     const rawName = cleanEmail.split('@')[0];
     const displayName = name?.trim() || rawName.charAt(0).toUpperCase() + rawName.slice(1);
-    const targetBizName = businessName?.trim() || `${displayName}'s Business Workspace`;
 
     // 1. Ensure Profile exists in DB
     const profile = await getOrCreateProfile(userId, cleanEmail, displayName);
 
     // 2. Find existing business for this user or create new one
     let existingBizs = await getUserBusinesses(userId);
-    let activeBiz = existingBizs.find(
-      (b) => b.owner_id === userId || b.business_name.toLowerCase() === targetBizName.toLowerCase()
-    );
+    let activeBiz: any = null;
+
+    if (existingBizs && existingBizs.length > 0) {
+      if (businessName) {
+        activeBiz = existingBizs.find(
+          (b) => b.business_name.toLowerCase() === businessName.trim().toLowerCase()
+        ) || existingBizs[0];
+        if (activeBiz && businessName.trim() && activeBiz.business_name !== businessName.trim()) {
+          activeBiz.business_name = businessName.trim();
+        }
+      } else {
+        activeBiz = existingBizs[0];
+      }
+    }
 
     if (!activeBiz) {
+      const targetBizName = businessName?.trim() || `${displayName}'s Business Workspace`;
       const created = await createBusinessWorkspace(
         userId,
         targetBizName,

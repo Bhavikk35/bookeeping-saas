@@ -37,12 +37,16 @@ export default function LoginPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  // If already logged in, redirect to dashboard
+  // If already logged in, provide option to proceed or switch account
+  const [alreadyLoggedIn, setAlreadyLoggedIn] = useState(false);
+
   useEffect(() => {
     if (!authLoading && user) {
-      router.replace('/dashboard');
+      setAlreadyLoggedIn(true);
+    } else {
+      setAlreadyLoggedIn(false);
     }
-  }, [user, authLoading, router]);
+  }, [user, authLoading]);
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -139,6 +143,24 @@ export default function LoginPage() {
           <h1 className="text-2xl font-black text-[#17211C] tracking-tight">Khata</h1>
           <p className="text-xs text-[#66736C]">Simple Conversational Bookkeeping for Small Businesses</p>
         </div>
+
+        {/* Already Logged In Banner */}
+        {alreadyLoggedIn && user && (
+          <div className="p-4 bg-[#EAF7F0] border border-[#168A55]/30 rounded-2xl space-y-2 text-center animate-fade-in">
+            <p className="text-xs text-[#168A55] font-semibold">
+              You are currently signed in as <strong className="font-extrabold">{user.name || user.email}</strong>.
+            </p>
+            <div className="flex items-center justify-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => (window.location.href = '/dashboard')}
+                className="px-3.5 py-1.5 bg-[#168A55] hover:bg-[#0D5C3A] text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1"
+              >
+                Go to Dashboard <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Mode Selector Tabs */}
         {mode !== 'forgot' && (
