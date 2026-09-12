@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getOrCreateProfile, createBusinessWorkspace, getUserBusinesses, inMemoryDB } from '@/lib/db';
+import { getOrCreateProfile, createBusinessWorkspace, getUserBusinesses } from '@/lib/db';
 
 export async function POST(request: Request) {
   try {
@@ -15,7 +15,7 @@ export async function POST(request: Request) {
     const userId = `usr_${slug}`;
     const rawName = cleanEmail.split('@')[0];
     const displayName = name?.trim() || rawName.charAt(0).toUpperCase() + rawName.slice(1);
-    const targetBizName = businessName?.trim() || `${displayName}'s Workspace`;
+    const targetBizName = businessName?.trim() || `${displayName}'s Business Workspace`;
 
     // 1. Ensure Profile exists in DB
     const profile = await getOrCreateProfile(userId, cleanEmail, displayName);
@@ -36,11 +36,31 @@ export async function POST(request: Request) {
       activeBiz = created.business;
     }
 
-    return NextResponse.json({
+    // 3. Create Session Payload
+    const sessionPayload = {
+      user: profile,
+      business: activeBiz,
+    };
+
+    const cookieValue = Buffer.from(JSON.stringify(sessionPayload)).toString('base64');
+
+    const response = NextResponse.json({
       success: true,
       user: profile,
       business: activeBiz,
     });
+
+    // Set Cookie valid for 30 days
+    response.cookies.set({
+      name: 'khata_session',
+      value: cookieValue,
+      httpOnly: false,
+      path: '/',
+      maxAge: 30 * 24 * 60 * 60,
+      sameSite: 'lax',
+    });
+
+    return response;
   } catch (err: any) {
     console.error('Error during auth login API:', err);
     return NextResponse.json({ error: err.message || 'Authentication failed.' }, { status: 500 });

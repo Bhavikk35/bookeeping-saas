@@ -44,6 +44,23 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
   const initializeTenantSession = async () => {
     setLoading(true);
     try {
+      // 0. Check HTTP Session Cookie first via /api/auth/me
+      try {
+        const meRes = await fetch('/api/auth/me');
+        const meData = await meRes.json();
+        if (meData.success && meData.authenticated && meData.user && meData.business) {
+          setUser(meData.user);
+          setCurrentBusiness(meData.business);
+          setBusinesses([meData.business]);
+          sessionStorage.setItem('auto_ledger_user', JSON.stringify(meData.user));
+          sessionStorage.setItem('auto_ledger_biz', JSON.stringify(meData.business));
+          localStorage.setItem('auto_ledger_user', JSON.stringify(meData.user));
+          localStorage.setItem('auto_ledger_biz', JSON.stringify(meData.business));
+          setLoading(false);
+          return;
+        }
+      } catch (e) {}
+
       // 1. Check SessionStorage or LocalStorage FIRST for active signed-up account session
       const storedUserJson =
         sessionStorage.getItem('auto_ledger_user') || localStorage.getItem('auto_ledger_user');
@@ -332,6 +349,9 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
 
   // Logout Functionality
   const logout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch (e) {}
     try {
       await supabase.auth.signOut();
     } catch (e) {}
