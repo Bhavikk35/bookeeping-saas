@@ -70,8 +70,8 @@ export default function LoginPage() {
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password || !businessName) {
-      setErrorMsg('Please provide your owner name, business workspace name, email address, and password.');
+    if (!email || !password) {
+      setErrorMsg('Please enter your email address and password.');
       return;
     }
 
