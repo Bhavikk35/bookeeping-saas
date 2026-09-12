@@ -234,7 +234,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             {/* User Profile */}
             <div className="flex items-center gap-2 bg-white border border-[#E2E8E4] rounded-xl px-3.5 py-1.5 text-xs font-semibold text-[#17211C] shadow-xs">
               <User className="w-3.5 h-3.5 text-[#168A55]" />
-              <span>{user?.email || 'bhavik@khata.in'}</span>
+              <span>{user?.email || 'owner@khata.in'}</span>
             </div>
           </div>
         </header>
