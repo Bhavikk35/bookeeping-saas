@@ -139,10 +139,22 @@ export async function processTelegramWebhookUpdate(update: any): Promise<{ succe
     }
   }
 
-  // 1. Handle /start <TOKEN> deep linking
-  if (text.startsWith('/start')) {
-    const parts = text.split(/\s+/);
-    const token = parts[1];
+  // 1. Handle /start <TOKEN> or direct token pairing in text
+  const isConnectAction =
+    text.startsWith('/start') ||
+    text.startsWith('connect_') ||
+    text.includes('connect_') ||
+    text.includes('start=connect_');
+
+  if (isConnectAction) {
+    let token = '';
+    const match = text.match(/(connect_[a-zA-Z0-9_]+)/);
+    if (match) {
+      token = match[1];
+    } else {
+      const parts = text.split(/\s+/);
+      token = parts[1] || (text.startsWith('connect_') ? text : '');
+    }
 
     if (!token) {
       let existingConn = await getTelegramConnectionByChatId(chatId);
@@ -178,16 +190,22 @@ export async function processTelegramWebhookUpdate(update: any): Promise<{ succe
       await sendTelegramMessage(chatId, confirmMsg);
       return { success: true, responseMessage: `Connected Telegram chat ${chatId} to business ${business.id}` };
     } catch (err: any) {
-      let existingConn = await getTelegramConnectionByChatId(chatId);
-      if (!existingConn) {
-        const targetBiz = resolveActiveTenantWorkspace();
-        existingConn = await createTelegramConnection(targetBiz.id, userId, chatId, username);
+      let targetBizId = '';
+      if (token.startsWith('connect_')) {
+        const tokenParts = token.split('_');
+        if (tokenParts.length >= 3) {
+          targetBizId = `${tokenParts[1]}_${tokenParts[2]}`;
+        }
       }
 
-      const existingBiz = existingConn ? await getBusiness(existingConn.business_id) : null;
+      let business = targetBizId ? await getBusiness(targetBizId) : null;
+      if (!business) business = resolveActiveTenantWorkspace();
+
+      await createTelegramConnection(business.id, userId, chatId, username);
+
       const alreadyConnectedMsg =
         `✅ <b>Telegram Connected!</b>\n\n` +
-        `Your Telegram chat is active for <b>${existingBiz?.business_name || "Bhaviksnv's Business Workspace"}</b>.\n\n` +
+        `Your Telegram chat is active for <b>${business.business_name}</b>.\n\n` +
         `• Send text or 🎙️ <b>Voice Notes</b> directly, e.g.: <i>"Aloo sold for ₹50"</i>\n` +
         `• Type <b>/history</b> to see today's transactions list!\n` +
         `• Type <b>/summary</b> or <b>/stats</b> to see your analytics report!`;

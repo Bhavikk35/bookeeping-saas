@@ -99,16 +99,10 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // Default fallback workspace so guest/unauthenticated views always display live transactions
-      const defaultUser: Profile = {
-        id: 'usr_tenant_bhavik',
-        email: 'bhavik@autoledger.com',
-        name: 'Bhaviksnv',
-        created_at: new Date().toISOString(),
-      };
+      // Default fallback workspace so guest/unauthenticated views display workspace structure without forcing active user session
       const defaultBiz: Business = {
         id: 'biz_tenant_bhavik',
-        owner_id: defaultUser.id,
+        owner_id: 'usr_tenant_bhavik',
         business_name: "Bhaviksnv's Business Workspace",
         business_type: 'General Business',
         currency: 'INR',
@@ -116,7 +110,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         updated_at: new Date().toISOString(),
       };
 
-      setUser(defaultUser);
+      setUser(null);
       setCurrentBusiness(defaultBiz);
       setBusinesses([defaultBiz]);
     } catch (err) {

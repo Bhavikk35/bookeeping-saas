@@ -41,7 +41,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const mobileNavItems = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Khata', href: '/dashboard/khata', icon: BookOpen },
-    { name: 'Telegram', href: '/dashboard/telegram', icon: Send },
+    { name: 'Insights', href: '/dashboard/insights', icon: TrendingUp },
     { name: 'Reports', href: '/dashboard/reports', icon: FileSpreadsheet },
     { name: 'Settings', href: '/dashboard/settings', icon: Settings },
   ];
