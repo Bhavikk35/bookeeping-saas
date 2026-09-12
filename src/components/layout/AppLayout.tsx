@@ -184,11 +184,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5 truncate">
               <div className="w-8 h-8 rounded-full bg-[#168A55] text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
-                {user?.name ? user.name[0].toUpperCase() : 'B'}
+                {user?.name ? user.name[0].toUpperCase() : 'U'}
               </div>
               <div className="truncate">
                 <p className="text-xs font-bold text-[#17211C] truncate">{user?.name || 'Business Owner'}</p>
-                <p className="text-[10px] text-[#66736C] truncate">{user?.email || 'owner@khata.in'}</p>
+                <p className="text-[10px] text-[#66736C] truncate">{user?.email || 'guest@workspace.com'}</p>
               </div>
             </div>
             <button
@@ -234,7 +234,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             {/* User Profile */}
             <div className="flex items-center gap-2 bg-white border border-[#E2E8E4] rounded-xl px-3.5 py-1.5 text-xs font-semibold text-[#17211C] shadow-xs">
               <User className="w-3.5 h-3.5 text-[#168A55]" />
-              <span>{user?.email || 'owner@khata.in'}</span>
+              <span>{user?.email || 'Guest Account'}</span>
             </div>
           </div>
         </header>

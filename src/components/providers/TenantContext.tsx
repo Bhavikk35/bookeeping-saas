@@ -60,6 +60,29 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      // 1.5 Check auto_ledger_registered_accounts map in localStorage
+      const regAccountsStr = localStorage.getItem('auto_ledger_registered_accounts');
+      if (regAccountsStr) {
+        try {
+          const regMap = JSON.parse(regAccountsStr);
+          const keys = Object.keys(regMap);
+          if (keys.length > 0) {
+            const latestAccount = regMap[keys[keys.length - 1]];
+            if (latestAccount?.user && latestAccount?.business) {
+              setUser(latestAccount.user);
+              setCurrentBusiness(latestAccount.business);
+              setBusinesses([latestAccount.business]);
+              sessionStorage.setItem('auto_ledger_user', JSON.stringify(latestAccount.user));
+              sessionStorage.setItem('auto_ledger_biz', JSON.stringify(latestAccount.business));
+              localStorage.setItem('auto_ledger_user', JSON.stringify(latestAccount.user));
+              localStorage.setItem('auto_ledger_biz', JSON.stringify(latestAccount.business));
+              setLoading(false);
+              return;
+            }
+          }
+        } catch (e) {}
+      }
+
       // 2. Check Supabase Auth session if no local session exists
       const { data: authData } = await supabase.auth.getUser();
       if (authData?.user) {
