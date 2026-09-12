@@ -273,13 +273,35 @@ export async function getUserBusinesses(userId: string): Promise<Business[]> {
 }
 
 export async function getBusiness(businessId: string): Promise<Business | null> {
+  if (!businessId) return null;
+
   if (supabase) {
     try {
       const { data } = await supabase.from('businesses').select('*').eq('id', businessId).single();
       if (data) return data;
     } catch (e) {}
   }
-  return inMemoryDB.businesses.get(businessId) || null;
+
+  const existing = inMemoryDB.businesses.get(businessId);
+  if (existing) return existing;
+
+  // Auto-register custom business workspace dynamically if created via sign-up or token
+  const nameFromId = businessId.replace(/^biz_(tenant_)?/, '').replace(/_/g, ' ');
+  const cleanName = nameFromId ? nameFromId.charAt(0).toUpperCase() + nameFromId.slice(1) : 'Business Workspace';
+
+  const autoBiz: Business = {
+    id: businessId,
+    owner_id: `usr_${businessId}`,
+    business_name: cleanName.includes('Workspace') || cleanName.includes('Store') ? cleanName : `${cleanName}'s Workspace`,
+    business_type: 'General Business',
+    currency: 'INR',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  inMemoryDB.businesses.set(businessId, autoBiz);
+  inMemoryDB.saveToDisk();
+  return autoBiz;
 }
 
 // TELEGRAM CONNECTION LOGIC
@@ -289,18 +311,18 @@ export async function createTelegramToken(businessId: string, businessName?: str
   const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
   const now = new Date().toISOString();
 
-  if (!inMemoryDB.businesses.has(businessId)) {
-    const newBiz: Business = {
-      id: businessId,
-      owner_id: `usr_${businessId}`,
-      business_name: businessName || 'My Business Workspace',
-      business_type: 'General Business',
-      currency: 'INR',
-      created_at: now,
-      updated_at: now,
-    };
-    inMemoryDB.businesses.set(businessId, newBiz);
-  }
+  const existing = inMemoryDB.businesses.get(businessId);
+  const newBiz: Business = {
+    id: businessId,
+    owner_id: existing?.owner_id || `usr_${businessId}`,
+    business_name: businessName || existing?.business_name || 'My Business Workspace',
+    business_type: 'General Business',
+    currency: 'INR',
+    created_at: existing?.created_at || now,
+    updated_at: now,
+  };
+  inMemoryDB.businesses.set(businessId, newBiz);
+  inMemoryDB.saveToDisk();
 
   if (supabase) {
     try {

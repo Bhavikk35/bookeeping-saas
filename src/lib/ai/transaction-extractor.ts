@@ -8,7 +8,7 @@ const aiClient = isRealGemini ? new GoogleGenAI({ apiKey }) : null;
 
 /**
  * Multilingual Heuristic Parser supporting English, Hindi (हिंदी / Hinglish),
- * and Marathi (मराठी / Marathish/Romaji).
+ * Marathi (मराठी / Marathish/Romaji), and Indian Shopkeeper Slang ("maggie 20 la", "maggie 20", "chai 10").
  */
 function heuristicExtractTransaction(text: string): AIExtractionResult {
   const clean = text.trim();
@@ -41,7 +41,44 @@ function heuristicExtractTransaction(text: string): AIExtractionResult {
     };
   }
 
-  // 2. Sales Pattern (English, Hindi, Marathi):
+  // 2. Short Indian Shopkeeper Slang Sales ("maggie 20 la", "maggie 20", "chai 10", "samosa 30 rs", "वडापाव २०")
+  const shortSaleMatch = normalizedText.match(/^([a-z\u0900-\u097F\s]+?)\s+[₹$]?(\d+(?:\.\d+)?)\s*(?:la|me|mein|ko|rs|rupaye|rupee|रुपये|रु|ला|में)?$/i);
+  if (
+    shortSaleMatch &&
+    !lower.includes('ghetla') &&
+    !lower.includes('ghetle') &&
+    !lower.includes('dile') &&
+    !lower.includes('diye') &&
+    !lower.includes('bill') &&
+    !lower.includes('khareedi') &&
+    !lower.includes('bought') &&
+    !lower.includes('paid') &&
+    !lower.includes('expense') &&
+    !lower.includes('भरले') &&
+    !lower.includes('खरेदी')
+  ) {
+    const rawItem = shortSaleMatch[1].trim();
+    const amount = parseFloat(shortSaleMatch[2]);
+    if (rawItem && !isNaN(amount) && amount > 0) {
+      const cleanItem = rawItem.charAt(0).toUpperCase() + rawItem.slice(1);
+      return {
+        isAmbiguous: false,
+        transaction: {
+          transaction_type: 'sale',
+          amount,
+          currency: 'INR',
+          item: cleanItem,
+          quantity: 1,
+          category: 'Food & Retail Sales',
+          payment_status: 'paid',
+          description: clean,
+          transaction_date: todayStr,
+        },
+      };
+    }
+  }
+
+  // 3. Explicit Sales Pattern (English, Hindi, Marathi):
   // "Aloo bhajiya sold for ₹50", "Vadapav 50 rupayala vikla", "50 rupaye ki chai bechi", "वडापाव ५० रुपयात विकला"
   const saleMatch =
     normalizedText.match(/(.+?)\s+(?:sold|vikla|vikli|vikle|becha|bechi|beche|विकला|विकले|विकली|बेचा|बेची|बेचे)\s+(?:for|la|mhadhe|mein|ko)?\s+[₹$]?(\d+(?:\.\d+)?)/i) ||
@@ -52,9 +89,6 @@ function heuristicExtractTransaction(text: string): AIExtractionResult {
   if (saleMatch) {
     let item = (saleMatch[1] || '').replace(/^(a|an|the|bought|sold|vikla|becha)\s+/i, '').trim();
     const amount = parseFloat(saleMatch[2] || saleMatch[1]);
-    if (isNaN(amount) && saleMatch[2]) {
-      // swap if regex group ordering differs
-    }
 
     return {
       isAmbiguous: false,
@@ -62,7 +96,7 @@ function heuristicExtractTransaction(text: string): AIExtractionResult {
         transaction_type: 'sale',
         amount: isNaN(amount) ? 50 : amount,
         currency: 'INR',
-        item: item || 'General Sale',
+        item: item.charAt(0).toUpperCase() + item.slice(1) || 'General Sale',
         quantity: 1,
         category: 'Food & Retail Sales',
         payment_status: 'paid',
@@ -72,7 +106,7 @@ function heuristicExtractTransaction(text: string): AIExtractionResult {
     };
   }
 
-  // 3. Purchase Pattern (English, Hindi, Marathi):
+  // 4. Purchase Pattern (English, Hindi, Marathi):
   // "Bought 10 kg potatoes for ₹400", "Batate 400 rs la ghetle", "१० किलो बटाटे ४०० रुपयांना खरेदी केले"
   const purchaseMatch =
     normalizedText.match(/(?:bought|purchased|ghetla|ghetle|khareedi|khareedla|खरेदी|घेतले|घेतला)\s+(?:(\d+)\s*(?:kg|pcs|items)?\s+)?(.+?)\s+(?:for|la|mein)?\s+[₹$]?(\d+(?:\.\d+)?)/i) ||
@@ -89,7 +123,7 @@ function heuristicExtractTransaction(text: string): AIExtractionResult {
         transaction_type: 'purchase',
         amount: isNaN(amount) ? 100 : amount,
         currency: 'INR',
-        item,
+        item: item.charAt(0).toUpperCase() + item.slice(1),
         quantity: qty,
         category: 'Inventory & Supplies',
         supplier_name: 'Vendor',
@@ -100,7 +134,7 @@ function heuristicExtractTransaction(text: string): AIExtractionResult {
     };
   }
 
-  // 4. Utility / Bill Expenses (English, Hindi, Marathi):
+  // 5. Utility / Bill Expenses (English, Hindi, Marathi):
   // "Paid electricity bill ₹2300", "Bijli bill 500 rs dile", "लाइट बिल २४०० रुपये भरले"
   const billMatch =
     normalizedText.match(/(?:paid|bhara|bharle|dile|diye|भरले|दिले)\s+(.+?)\s+(?:bill)?\s+[₹$]?(\d+(?:\.\d+)?)/i) ||
@@ -126,7 +160,7 @@ function heuristicExtractTransaction(text: string): AIExtractionResult {
     };
   }
 
-  // 5. Money Received / Receivable (English, Hindi, Marathi):
+  // 6. Money Received / Receivable (English, Hindi, Marathi):
   // "Rahul paid me ₹1000", "Rahul ne 1000 rs diye", "Rahul kadun 1000 rs aale", "राहुल कडून १००० रुपये आले"
   const recMatch =
     normalizedText.match(/([a-z\u0900-\u097F\s]+)\s+(?:ne|kadun|se)?\s+[₹$]?(\d+(?:\.\d+)?)\s+(?:rs|rupaye|rupee|रुपये)?\s*(?:diye|aale|aala|dile|paid me|आले|दिये)/i);
@@ -152,7 +186,7 @@ function heuristicExtractTransaction(text: string): AIExtractionResult {
     };
   }
 
-  // 6. Money Paid / Payable (English, Hindi, Marathi):
+  // 7. Money Paid / Payable (English, Hindi, Marathi):
   // "I paid Sharma ₹3000", "Sharma la 3000 dile", "शर्मा ला ३००० रुपये दिले"
   const paidPartyMatch =
     normalizedText.match(/([a-z\u0900-\u097F\s]+)\s+(?:la|ko)\s+[₹$]?(\d+(?:\.\d+)?)\s+(?:rs|rupaye|rupee|रुपये)?\s*(?:dile|diye|paid|दिले|दिये)/i) ||
@@ -179,34 +213,35 @@ function heuristicExtractTransaction(text: string): AIExtractionResult {
     };
   }
 
-  // 7. General Numeric Amount Fallback for any natural text containing digits
+  // 8. General Fallback for any natural text containing an item and digits -> Default to SALE unless expense keywords are present
   const generalAmtMatch = normalizedText.match(/[₹$]?(\d+(?:\.\d+)?)/);
   if (generalAmtMatch) {
     const amount = parseFloat(generalAmtMatch[1]);
-    const isSale =
-      lower.includes('sold') ||
-      lower.includes('vikla') ||
-      lower.includes('becha') ||
-      lower.includes('receive') ||
-      lower.includes('aale') ||
-      lower.includes('विकले') ||
-      lower.includes('बेचे');
+    const isExpense =
+      lower.includes('bill') ||
+      lower.includes('ghetla') ||
+      lower.includes('ghetle') ||
+      lower.includes('dile') ||
+      lower.includes('khareedi') ||
+      lower.includes('bought') ||
+      lower.includes('expense') ||
+      lower.includes('paid');
 
     const cleanItem =
       normalizedText
         .replace(/[₹$]?\d+(?:\.\d+)?/g, '')
-        .replace(/(rs|rupaye|rupee|रुपये|sold|vikla|becha|ghetla|dile)/gi, '')
-        .trim() || 'General Transaction';
+        .replace(/(rs|rupaye|rupee|रुपये|sold|vikla|becha|ghetla|dile|la|me|mein)/gi, '')
+        .trim() || 'Counter Sale';
 
     return {
       isAmbiguous: false,
       transaction: {
-        transaction_type: isSale ? 'sale' : 'expense',
+        transaction_type: isExpense ? 'expense' : 'sale',
         amount: isNaN(amount) ? 100 : amount,
         currency: 'INR',
         item: cleanItem.charAt(0).toUpperCase() + cleanItem.slice(1),
         quantity: 1,
-        category: isSale ? 'Sales' : 'General Expense',
+        category: isExpense ? 'General Expense' : 'Food & Retail Sales',
         payment_status: 'paid',
         description: clean,
         transaction_date: todayStr,
@@ -217,7 +252,7 @@ function heuristicExtractTransaction(text: string): AIExtractionResult {
   return {
     isAmbiguous: true,
     clarificationMessage:
-      'Could not detect the transaction amount or item details. Please send like: "Vadapav 50 rs vikla" / "वडापाव ५० रुपयात विकला" / "Aloo bhajiya sold for ₹50".',
+      'Could not detect transaction details. Please send like: "maggie 20 la" / "chai 10" / "Vadapav 50 rs vikla" / "Batate 400 rs la ghetle".',
   };
 }
 
@@ -241,21 +276,22 @@ export async function extractTransactionFromNaturalLanguage(
 
   try {
     const prompt = `You are an expert multilingual financial bookkeeping AI assistant.
-Your task is to extract structured financial transaction data from natural language text written in Marathi (मराठी), Hindi (हिंदी), Hinglish/Marathish (Romanized script e.g. "Vadapav 50 rs vikla"), or English.
+Your task is to extract structured financial transaction data from natural language text written in Marathi (मराठी), Hindi (हिंदी), Hinglish/Marathish (Romanized script e.g. "maggie 20 la", "Vadapav 50 rs vikla"), or English.
 
 Input Text: "${text}"
 Default Currency: "${businessCurrency}"
 
 Rules:
-1. Support all major Indian languages & scripts:
-   - Marathi examples: "वडापाव ५० रुपयात विकला", "Vadapav 50 rs la vikla", "500 rs batate ghetle", "लाइट बिल २००० रु भरले", "Sharma la 3000 rs dile"
+1. Support short Indian shopkeeper slang & regional dialects:
+   - "maggie 20 la" or "maggie 20" or "chai 10" -> item: "Maggie", amount: 20, transaction_type: "sale", category: "Food & Retail Sales"
+   - Marathi examples: "वडापाव ५० रुपयात विकला", "Batate 400 rs la ghetle", "लाइट बिल २००० रु भरले", "Sharma la 3000 rs dile"
    - Hindi examples: "50 rupaye ki chai bechi", "चाय बेची ₹50", "Rahul ne 1000 rs diye", "Bijli bill 500 bhara"
    - English examples: "Aloo bhajiya sold for ₹50", "Bought 10 kg potatoes for ₹400", "Paid electricity bill ₹2300"
 2. Determine transaction_type: one of ["sale", "expense", "purchase", "money_received", "money_paid", "receivable", "payable"].
-3. Extract exact numeric amount and item name (translate item name to clear readable title if in local dialect).
-4. Assign appropriate category (e.g., "Food & Beverages", "Inventory & Raw Materials", "Utilities & Overhead", "Customer Settlement", "Supplier Settlement").
-5. If the message lacks an amount or is ambiguous, set isAmbiguous = true and write a polite, concise clarificationMessage in the user's language.
-6. If clear, set isAmbiguous = false and populate the transaction object.`;
+   IMPORTANT: Any item + number phrase (e.g. "maggie 20 la", "maggie 20", "samosa 30") without explicit expense/purchase keywords MUST be classified as "sale"!
+3. Extract exact numeric amount and item name (capitalize and translate item name cleanly).
+4. Assign appropriate category (e.g., "Food & Retail Sales", "Inventory & Raw Materials", "Utilities & Overhead", "Customer Settlement", "Supplier Settlement").
+5. If clear, set isAmbiguous = false and populate the transaction object.`;
 
     const response = await aiClient.models.generateContent({
       model: 'gemini-2.5-flash',
