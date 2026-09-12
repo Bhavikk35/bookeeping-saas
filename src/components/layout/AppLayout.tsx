@@ -32,12 +32,19 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const navItems = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Khata', href: '/dashboard/khata', icon: BookOpen },
+    { name: 'Telegram', href: '/dashboard/telegram', icon: Send },
     { name: 'Insights', href: '/dashboard/insights', icon: TrendingUp },
     { name: 'Data & Reports', href: '/dashboard/reports', icon: FileSpreadsheet },
     { name: 'Settings', href: '/dashboard/settings', icon: Settings },
   ];
 
-  const isTelegramConnected = true; // Connected state representation
+  const mobileNavItems = [
+    { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+    { name: 'Khata', href: '/dashboard/khata', icon: BookOpen },
+    { name: 'Telegram', href: '/dashboard/telegram', icon: Send },
+    { name: 'Reports', href: '/dashboard/reports', icon: FileSpreadsheet },
+    { name: 'Settings', href: '/dashboard/settings', icon: Settings },
+  ];
 
   return (
     <div className="min-h-screen bg-[#F7F9F8] text-[#17211C] font-sans flex flex-col md:flex-row antialiased">
@@ -54,9 +61,12 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         </Link>
 
         <div className="flex items-center gap-2">
-          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[#168A55] bg-[#EAF7F0] px-2 py-1 rounded-full border border-[#168A55]/20">
-            <CheckCircle2 className="w-3 h-3" /> Telegram Connected
-          </span>
+          <Link
+            href="/dashboard/telegram"
+            className="inline-flex items-center gap-1 text-[10px] font-bold text-[#168A55] bg-[#EAF7F0] px-2 py-1 rounded-full border border-[#168A55]/20 hover:bg-[#168A55] hover:text-white transition-colors"
+          >
+            <Send className="w-3 h-3" /> Telegram Bot
+          </Link>
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             className="p-2 rounded-lg text-[#66736C] hover:text-[#17211C] hover:bg-[#F7F9F8]"
@@ -213,10 +223,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
           <div className="flex items-center gap-3">
             {/* Telegram Bot Connection Pill */}
-            <div className="flex items-center gap-2 bg-[#EAF7F0] border border-[#168A55]/20 rounded-xl px-3 py-1.5 text-xs font-bold text-[#168A55]">
+            <Link
+              href="/dashboard/telegram"
+              className="flex items-center gap-2 bg-[#EAF7F0] border border-[#168A55]/20 rounded-xl px-3 py-1.5 text-xs font-bold text-[#168A55] hover:bg-[#168A55] hover:text-white transition-all shadow-xs"
+            >
               <Send className="w-3.5 h-3.5" />
-              <span>✓ Telegram Bot Connected</span>
-            </div>
+              <span>✓ Telegram Bot</span>
+            </Link>
 
             {/* User Profile */}
             <div className="flex items-center gap-2 bg-white border border-[#E2E8E4] rounded-xl px-3.5 py-1.5 text-xs font-semibold text-[#17211C] shadow-xs">
@@ -276,15 +289,15 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="p-4 md:p-8 max-w-7xl mx-auto w-full flex-1">{children}</div>
 
         {/* Mobile Fixed Bottom Navigation Bar */}
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-[#E2E8E4] px-2 py-1.5 flex items-center justify-around shadow-lg">
-          {navItems.map((item) => {
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-[#E2E8E4] px-1.5 py-1.5 flex items-center justify-around shadow-lg">
+          {mobileNavItems.map((item) => {
             const Icon = item.icon;
             const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
             return (
               <Link
                 key={item.name}
                 href={item.href}
-                className={`flex flex-col items-center py-1 px-3 rounded-lg text-[10px] font-bold transition-all ${
+                className={`flex flex-col items-center py-1 px-2.5 rounded-lg text-[10px] font-bold transition-all ${
                   isActive ? 'text-[#168A55]' : 'text-[#66736C] hover:text-[#17211C]'
                 }`}
               >

@@ -309,11 +309,19 @@ export async function processTelegramWebhookUpdate(update: any): Promise<{ succe
   // 2. Routing Normal Telegram Messages to Active Connected Tenant Business
   let connection = await getTelegramConnectionByChatId(chatId);
   if (!connection) {
+    // Auto-healing fallback: ensure connection is never lost on serverless cold starts
+    const targetBiz = resolveActiveTenantWorkspace();
+    if (targetBiz) {
+      connection = await createTelegramConnection(targetBiz.id, userId, chatId, username);
+    }
+  }
+
+  if (!connection) {
     const unlinkedNotice =
       `⚠️ <b>Telegram Chat Not Connected</b>\n\n` +
       `Your Telegram chat is not paired with your business workspace yet.\n\n` +
-      `1. Log in to your web dashboard: <b>https://bookeeping-sas.netlify.app/dashboard/integrations</b>\n` +
-      `2. Click <b>Connect Telegram Bot</b> to pair your chat with your workspace!`;
+      `1. Log in to your web dashboard: <b>https://bookeeping-sas.netlify.app/dashboard/telegram</b>\n` +
+      `2. Click <b>⚡ Generate Connection Link</b> to pair your chat!`;
     await sendTelegramMessage(chatId, unlinkedNotice);
     return { success: true, responseMessage: 'Asked user to pair Telegram workspace.' };
   }

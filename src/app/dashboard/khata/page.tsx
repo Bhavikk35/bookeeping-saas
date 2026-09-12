@@ -1,19 +1,18 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { useTenant } from '@/components/providers/TenantContext';
 import { Transaction } from '@/lib/types';
 import {
-  Clock,
   ArrowUpRight,
   ArrowDownRight,
-  UserCheck,
-  PlusCircle,
   Search,
-  CheckCircle2,
-  AlertCircle,
-  PhoneCall,
   Send,
+  PlusCircle,
+  CheckCircle2,
+  Inbox,
+  User,
 } from 'lucide-react';
 
 export default function KhataPage() {
@@ -42,7 +41,7 @@ export default function KhataPage() {
     fetchTransactions();
   }, [currentBusiness?.id]);
 
-  // Aggregate receivables (Money to Collect) and payables (Money to Pay)
+  // Aggregate receivables (Money to Collect) and payables (Money to Pay) strictly from live transactions
   const collectMap: Record<string, { party: string; amount: number; lastDate: string; items: string[] }> = {};
   const payMap: Record<string, { party: string; amount: number; lastDate: string; items: string[] }> = {};
 
@@ -51,34 +50,20 @@ export default function KhataPage() {
     const isPending = tx.payment_status === 'pending';
 
     if (tx.transaction_type === 'receivable' || (tx.transaction_type === 'sale' && isPending)) {
-      const party = tx.customer_name || tx.item || 'Customer';
+      const party = tx.customer_name || tx.item || 'Customer Credit';
       if (!collectMap[party]) collectMap[party] = { party, amount: 0, lastDate: tx.transaction_date, items: [] };
       collectMap[party].amount += amt;
       collectMap[party].items.push(tx.item);
     } else if (tx.transaction_type === 'payable' || (tx.transaction_type === 'purchase' && isPending)) {
-      const party = tx.supplier_name || tx.item || 'Supplier';
+      const party = tx.supplier_name || tx.item || 'Supplier Payable';
       if (!payMap[party]) payMap[party] = { party, amount: 0, lastDate: tx.transaction_date, items: [] };
       payMap[party].amount += amt;
       payMap[party].items.push(tx.item);
     }
   });
 
-  // Seed default demonstration entries if empty so the user immediately understands Khata
   const collectEntries = Object.values(collectMap);
-  if (collectEntries.length === 0) {
-    collectEntries.push(
-      { party: 'Rahul', amount: 1500, lastDate: new Date().toISOString().split('T')[0], items: ['Daily groceries'] },
-      { party: 'Amit Sharma', amount: 3200, lastDate: new Date().toISOString().split('T')[0], items: ['Bulk order'] }
-    );
-  }
-
   const payEntries = Object.values(payMap);
-  if (payEntries.length === 0) {
-    payEntries.push(
-      { party: 'Sharma Traders', amount: 4500, lastDate: new Date().toISOString().split('T')[0], items: ['Flour & Grain supplies'] },
-      { party: 'ABC Wholesale', amount: 2000, lastDate: new Date().toISOString().split('T')[0], items: ['Beverage stock'] }
-    );
-  }
 
   const totalCollect = collectEntries.reduce((sum, e) => sum + e.amount, 0);
   const totalPay = payEntries.reduce((sum, e) => sum + e.amount, 0);
@@ -97,20 +82,28 @@ export default function KhataPage() {
         <div>
           <h2 className="text-xl font-black text-[#17211C] tracking-tight">Digital Khata (Credit & Debt Ledger)</h2>
           <p className="text-xs text-[#66736C] mt-0.5">
-            Track people who owe your business and suppliers you need to pay
+            Real-time credit & debt ledger aggregated from your transactions
           </p>
         </div>
 
-        {/* Search */}
-        <div className="relative w-full sm:w-72">
-          <Search className="w-4 h-4 absolute left-3 top-2.5 text-[#66736C]" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search customer or supplier..."
-            className="w-full pl-9 pr-3 py-2 bg-white border border-[#E2E8E4] rounded-xl text-xs text-[#17211C] placeholder-[#66736C] focus:outline-none focus:border-[#168A55] shadow-xs"
-          />
+        {/* Action & Search */}
+        <div className="flex items-center gap-2">
+          <div className="relative w-full sm:w-64">
+            <Search className="w-4 h-4 absolute left-3 top-2.5 text-[#66736C]" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search customer or supplier..."
+              className="w-full pl-9 pr-3 py-2 bg-white border border-[#E2E8E4] rounded-xl text-xs text-[#17211C] placeholder-[#66736C] focus:outline-none focus:border-[#168A55] shadow-xs"
+            />
+          </div>
+          <Link
+            href="/dashboard"
+            className="px-3.5 py-2 bg-[#168A55] text-white rounded-xl text-xs font-bold shrink-0 hover:bg-[#0D5C3A] transition-colors flex items-center gap-1.5 shadow-xs"
+          >
+            <PlusCircle className="w-4 h-4" /> + Add Entry
+          </Link>
         </div>
       </div>
 
@@ -162,39 +155,51 @@ export default function KhataPage() {
             </span>
           </div>
 
-          <div className="divide-y divide-[#E2E8E4]">
-            {filteredCollect.map((entry, idx) => (
-              <div key={idx} className="py-3.5 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full bg-amber-100 text-[#D97706] flex items-center justify-center font-bold text-xs">
-                    {entry.party[0]}
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-bold text-[#17211C]">{entry.party}</h4>
-                    <p className="text-[11px] text-[#66736C] mt-0.5">
-                      {entry.items.join(', ')} • {entry.lastDate}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="text-right flex items-center gap-3">
-                  <div>
-                    <p className="text-sm font-extrabold text-[#D97706]">₹{entry.amount.toLocaleString('en-IN')}</p>
-                    <span className="text-[10px] font-bold text-[#D97706] bg-amber-50 px-1.5 py-0.2 rounded">Pending</span>
-                  </div>
-                  <a
-                    href="https://t.me/MySaaSBookkeeper_bot"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="p-1.5 rounded-lg bg-[#EAF7F0] text-[#168A55] hover:bg-[#168A55] hover:text-white transition-colors"
-                    title="Send Reminder via Telegram"
-                  >
-                    <Send className="w-3.5 h-3.5" />
-                  </a>
-                </div>
+          {loading ? (
+            <div className="py-8 text-center text-xs text-[#66736C] animate-pulse">Loading Khata entries...</div>
+          ) : filteredCollect.length === 0 ? (
+            <div className="py-8 text-center space-y-2">
+              <div className="w-10 h-10 rounded-full bg-amber-50 text-[#D97706] mx-auto flex items-center justify-center font-bold">
+                ✓
               </div>
-            ))}
-          </div>
+              <p className="text-xs font-bold text-[#17211C]">No Pending Collections</p>
+              <p className="text-[11px] text-[#66736C]">You're all caught up. No customer credit recorded.</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-[#E2E8E4]">
+              {filteredCollect.map((entry, idx) => (
+                <div key={idx} className="py-3.5 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-amber-100 text-[#D97706] flex items-center justify-center font-bold text-xs">
+                      {entry.party[0]?.toUpperCase() || 'C'}
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-[#17211C]">{entry.party}</h4>
+                      <p className="text-[11px] text-[#66736C] mt-0.5">
+                        {entry.items.join(', ')} • {entry.lastDate}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="text-right flex items-center gap-3">
+                    <div>
+                      <p className="text-sm font-extrabold text-[#D97706]">₹{entry.amount.toLocaleString('en-IN')}</p>
+                      <span className="text-[10px] font-bold text-[#D97706] bg-amber-50 px-1.5 py-0.2 rounded">Pending</span>
+                    </div>
+                    <a
+                      href="https://t.me/MySaaSBookkeeper_bot"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-1.5 rounded-lg bg-[#EAF7F0] text-[#168A55] hover:bg-[#168A55] hover:text-white transition-colors"
+                      title="Send Reminder via Telegram"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                    </a>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* SECTION 2: MONEY TO PAY */}
@@ -214,28 +219,40 @@ export default function KhataPage() {
             </span>
           </div>
 
-          <div className="divide-y divide-[#E2E8E4]">
-            {filteredPay.map((entry, idx) => (
-              <div key={idx} className="py-3.5 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full bg-slate-100 text-[#17211C] flex items-center justify-center font-bold text-xs">
-                    {entry.party[0]}
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-bold text-[#17211C]">{entry.party}</h4>
-                    <p className="text-[11px] text-[#66736C] mt-0.5">
-                      {entry.items.join(', ')} • {entry.lastDate}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="text-right">
-                  <p className="text-sm font-extrabold text-[#17211C]">₹{entry.amount.toLocaleString('en-IN')}</p>
-                  <span className="text-[10px] font-bold text-[#66736C] bg-slate-100 px-1.5 py-0.2 rounded">Unsettled</span>
-                </div>
+          {loading ? (
+            <div className="py-8 text-center text-xs text-[#66736C] animate-pulse">Loading payables...</div>
+          ) : filteredPay.length === 0 ? (
+            <div className="py-8 text-center space-y-2">
+              <div className="w-10 h-10 rounded-full bg-slate-100 text-[#66736C] mx-auto flex items-center justify-center font-bold">
+                ✓
               </div>
-            ))}
-          </div>
+              <p className="text-xs font-bold text-[#17211C]">No Pending Payables</p>
+              <p className="text-[11px] text-[#66736C]">All clear. You have no pending supplier debts.</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-[#E2E8E4]">
+              {filteredPay.map((entry, idx) => (
+                <div key={idx} className="py-3.5 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-slate-100 text-[#17211C] flex items-center justify-center font-bold text-xs">
+                      {entry.party[0]?.toUpperCase() || 'S'}
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-[#17211C]">{entry.party}</h4>
+                      <p className="text-[11px] text-[#66736C] mt-0.5">
+                        {entry.items.join(', ')} • {entry.lastDate}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="text-right">
+                    <p className="text-sm font-extrabold text-[#17211C]">₹{entry.amount.toLocaleString('en-IN')}</p>
+                    <span className="text-[10px] font-bold text-[#66736C] bg-slate-100 px-1.5 py-0.2 rounded">Unsettled</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
