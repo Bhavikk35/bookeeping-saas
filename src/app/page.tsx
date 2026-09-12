@@ -14,6 +14,7 @@ import {
   Smartphone,
   Lock,
   ChevronRight,
+  FileSpreadsheet,
 } from 'lucide-react';
 
 export default function LandingPage() {
