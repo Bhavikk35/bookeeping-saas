@@ -129,9 +129,9 @@ function OnboardingForm() {
 
   const handleEnterDashboard = () => {
     if (businessId) {
-      router.push(`/dashboard?businessId=${businessId}`);
+      window.location.href = `/dashboard?businessId=${businessId}`;
     } else {
-      router.push('/dashboard');
+      window.location.href = '/dashboard';
     }
   };
 

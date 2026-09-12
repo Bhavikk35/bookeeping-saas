@@ -55,7 +55,7 @@ export default function LoginPage() {
       if (res && !res.success) {
         setErrorMsg(res.error || 'Invalid email or password. Please check your credentials.');
       } else {
-        router.push('/dashboard');
+        window.location.href = '/dashboard';
       }
     } catch (err: any) {
       setErrorMsg(err.message || 'Invalid login credentials. Please try again.');
@@ -98,9 +98,9 @@ export default function LoginPage() {
         }),
       });
 
-      router.push('/dashboard');
+      window.location.href = '/dashboard';
     } catch (err: any) {
-      router.push('/dashboard');
+      window.location.href = '/dashboard';
     } finally {
       setSubmitting(false);
     }
