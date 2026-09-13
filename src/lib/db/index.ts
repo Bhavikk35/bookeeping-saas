@@ -433,22 +433,28 @@ export async function createTelegramConnection(
 
   if (supabase) {
     try {
-      const { data: conn } = await supabase
+      const { data: conn, error } = await supabase
         .from('telegram_connections')
-        .upsert({
-          business_id: businessId,
-          telegram_user_id: telegramUserId,
-          telegram_chat_id: telegramChatId,
-          telegram_username: username || null,
-          connected_at: now,
-          status: 'active',
-          last_message_at: now,
-        })
+        .upsert(
+          {
+            business_id: businessId,
+            telegram_user_id: telegramUserId,
+            telegram_chat_id: telegramChatId,
+            telegram_username: username || null,
+            connected_at: now,
+            status: 'active',
+            last_message_at: now,
+          },
+          { onConflict: 'telegram_chat_id' }
+        )
         .select()
         .single();
 
-      if (conn) return conn;
-    } catch (e: any) {}
+      if (!error && conn) return conn;
+      if (error) console.error('[createTelegramConnection] Supabase upsert failed:', error.message, error.details);
+    } catch (e: any) {
+      console.error('[createTelegramConnection] Supabase upsert threw:', e.message);
+    }
   }
 
   const connection: TelegramConnection = {
