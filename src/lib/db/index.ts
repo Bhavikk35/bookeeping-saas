@@ -625,8 +625,9 @@ export async function addTransaction(
         .select()
         .single();
       if (!error && tx) return tx;
-    } catch (e) {
-      console.warn('Supabase transaction insert fallback to inMemoryDB');
+      if (error) console.error('[addTransaction] Supabase insert failed:', error.message, error.details);
+    } catch (e: any) {
+      console.error('[addTransaction] Supabase insert threw, falling back to inMemoryDB:', e.message);
     }
   }
 

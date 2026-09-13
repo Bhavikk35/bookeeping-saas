@@ -370,9 +370,12 @@ export async function processTelegramWebhookUpdate(update: any): Promise<{ succe
   }
 
   // 4. Save to Database (Multi-Tenant Scoped to Active Tenant Workspace)
+  // NOTE: created_by must be a real profile UUID (it's a foreign key to
+  // profiles.id) — the Telegram numeric user ID is NOT a valid value here,
+  // so we attribute Telegram-sourced transactions to the business owner.
   const savedTx = await addTransaction({
     business_id: business.id,
-    created_by: userId,
+    created_by: business.owner_id || null,
     telegram_connection_id: connection.id,
     transaction_type: parsedTx.transaction_type,
     amount: parsedTx.amount,
