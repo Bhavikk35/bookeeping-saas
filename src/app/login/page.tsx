@@ -84,27 +84,21 @@ export default function LoginPage() {
       const cleanName = name.trim() || cleanEmail.split('@')[0];
       const cleanBizName = businessName.trim() || `${cleanName}'s Workspace`;
 
-      // 1. Save user and business to TenantContext & LocalStorage
-      await signUp(cleanName, cleanBizName, cleanEmail, password);
+      const res = await signUp(cleanName, cleanBizName, cleanEmail, password);
 
-      // 2. Call backend endpoint to ensure workspace is registered
-      const mockUserId = `usr_${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
-      await fetch('/api/business/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: mockUserId,
-          userEmail: cleanEmail,
-          userName: cleanName,
-          businessName: cleanBizName,
-          businessType: 'General Business',
-          currency: 'INR',
-        }),
-      });
+      if (!res.success) {
+        setErrorMsg(res.error || 'Could not create your account. Please try again.');
+        return;
+      }
+
+      if (res.needsEmailConfirmation) {
+        setSuccessMsg(res.error || 'Account created! Please check your email to confirm your address.');
+        return;
+      }
 
       window.location.href = '/dashboard';
     } catch (err: any) {
-      window.location.href = '/dashboard';
+      setErrorMsg(err.message || 'Could not create your account. Please try again.');
     } finally {
       setSubmitting(false);
     }

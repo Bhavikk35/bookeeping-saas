@@ -25,6 +25,7 @@ function OnboardingForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { signUp } = useTenant();
+  const [signupError, setSignupError] = useState<string | null>(null);
 
   const stepParam = parseInt(searchParams.get('step') || '1', 10);
   const initialBizId = searchParams.get('businessId') || '';
@@ -53,38 +54,35 @@ function OnboardingForm() {
   const handleStep1Submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setSignupError(null);
     try {
-      const cleanEmail = email.trim() || 'owner@workspace.com';
+      const cleanEmail = email.trim().toLowerCase();
       const cleanName = ownerName.trim() || cleanEmail.split('@')[0];
       const cleanBizName = businessName.trim() || `${cleanName}'s Workspace`;
 
-      const mockUserId = `usr_${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
-
-      // Register via TenantContext
-      await signUp(cleanName, cleanBizName, cleanEmail, password || 'password123');
-
-      const res = await fetch('/api/business/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: mockUserId,
-          userEmail: cleanEmail,
-          userName: cleanName,
-          businessName: cleanBizName,
-          businessType,
-          currency,
-        }),
-      });
-
-      const data = await res.json();
-      if (data.success && data.business) {
-        setBusinessId(data.business.id);
-        setStep(2);
-      } else {
-        setStep(2);
+      if (!cleanEmail || !password) {
+        setSignupError('Please enter your email address and a password.');
+        setIsSubmitting(false);
+        return;
       }
-    } catch (err: any) {
+
+      const res = await signUp(cleanName, cleanBizName, cleanEmail, password, businessType, currency);
+
+      if (!res.success) {
+        setSignupError(res.error || 'Could not create your account. Please try again.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (res.needsEmailConfirmation) {
+        setSignupError(res.error || 'Account created! Please check your email to confirm your address, then sign in.');
+        setIsSubmitting(false);
+        return;
+      }
+
       setStep(2);
+    } catch (err: any) {
+      setSignupError(err.message || 'Could not create your account. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -185,6 +183,12 @@ function OnboardingForm() {
                 Sign In instead →
               </Link>
             </div>
+
+            {signupError && (
+              <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-xl text-xs font-semibold text-red-700">
+                {signupError}
+              </div>
+            )}
 
             <form onSubmit={handleStep1Submit} className="space-y-4 mt-6">
               {/* Owner Name & Email */}

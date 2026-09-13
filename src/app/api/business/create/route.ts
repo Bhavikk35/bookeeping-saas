@@ -1,24 +1,38 @@
 import { NextResponse } from 'next/server';
+import { createClient } from '@/lib/supabase/server';
 import { createBusinessWorkspace, getOrCreateProfile } from '@/lib/db';
 
+// NOTE: This route used to trust a client-supplied userId/userEmail, which
+// meant anyone could create (or overwrite) a workspace for any email address.
+// It now derives identity from the real, authenticated Supabase session only.
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const { userId, userEmail, userName, businessName, businessType, currency } = body;
+    const supabase = await createClient();
+    const {
+      data: { user: authUser },
+    } = await supabase.auth.getUser();
 
-    if (!userId || !userEmail || !businessName) {
-      return NextResponse.json(
-        { error: 'Missing required business details: userId, userEmail, or businessName.' },
-        { status: 400 }
-      );
+    if (!authUser) {
+      return NextResponse.json({ error: 'You must be signed in to create a business.' }, { status: 401 });
     }
 
-    // Ensure user profile exists
-    await getOrCreateProfile(userId, userEmail, userName);
+    const body = await request.json().catch(() => ({}));
+    const { businessName, businessType, currency } = body;
 
-    // Create Business Workspace + Member mapping
+    if (!businessName) {
+      return NextResponse.json({ error: 'Missing required field: businessName.' }, { status: 400 });
+    }
+
+    const email = authUser.email || '';
+    const meta = authUser.user_metadata || {};
+    const name = meta.name || meta.full_name || email.split('@')[0];
+
+    // Ensure profile exists
+    await getOrCreateProfile(authUser.id, email, name);
+
+    // Create Business Workspace + Member mapping for the *authenticated* user
     const result = await createBusinessWorkspace(
-      userId,
+      authUser.id,
       businessName,
       businessType || 'Retail Store',
       currency || 'INR'

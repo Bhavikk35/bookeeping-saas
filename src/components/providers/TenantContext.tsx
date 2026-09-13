@@ -14,8 +14,10 @@ interface TenantContextType {
     name: string,
     businessName: string,
     email: string,
-    password: string
-  ) => Promise<{ success: boolean; error?: string }>;
+    password: string,
+    businessType?: string,
+    currency?: string
+  ) => Promise<{ success: boolean; error?: string; needsEmailConfirmation?: boolean }>;
   forgotPassword: (email: string) => Promise<{ success: boolean; message: string; error?: string }>;
   logout: () => Promise<void>;
   loading: boolean;
@@ -40,92 +42,48 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
   const [currentBusiness, setCurrentBusiness] = useState<Business | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Load User & Business Session dynamically
+  // Ask the server (which knows the real, cookie-based Supabase session) who
+  // is logged in, and make sure they have a business workspace.
+  const loadSessionFromServer = async (): Promise<boolean> => {
+    try {
+      const meRes = await fetch('/api/auth/me');
+      const meData = await meRes.json();
+      if (meData.success && meData.authenticated && meData.user && meData.business) {
+        setUser(meData.user);
+        setCurrentBusiness(meData.business);
+        setBusinesses(meData.businesses || [meData.business]);
+        return true;
+      }
+    } catch (e) {
+      console.error('Failed to load session from server', e);
+    }
+    return false;
+  };
+
   const initializeTenantSession = async () => {
     setLoading(true);
     try {
-      // 1. Check SessionStorage or LocalStorage FIRST for active signed-up/signed-in account session
-      const storedUserJson =
-        sessionStorage.getItem('auto_ledger_user') || localStorage.getItem('auto_ledger_user');
-      const storedBizJson =
-        sessionStorage.getItem('auto_ledger_biz') || localStorage.getItem('auto_ledger_biz');
-
-      if (storedUserJson && storedBizJson) {
-        try {
-          const parsedUser: Profile = JSON.parse(storedUserJson);
-          const parsedBiz: Business = JSON.parse(storedBizJson);
-          if (parsedUser && parsedUser.id && parsedBiz && parsedBiz.id) {
-            setUser(parsedUser);
-            setCurrentBusiness(parsedBiz);
-            setBusinesses([parsedBiz]);
-            setLoading(false);
-            return;
-          }
-        } catch (e) {}
-      }
-
-      // 2. Check HTTP Session Cookie via /api/auth/me if no local session exists
-      try {
-        const meRes = await fetch('/api/auth/me');
-        const meData = await meRes.json();
-        if (meData.success && meData.authenticated && meData.user && meData.business) {
-          setUser(meData.user);
-          setCurrentBusiness(meData.business);
-          setBusinesses([meData.business]);
-          sessionStorage.setItem('auto_ledger_user', JSON.stringify(meData.user));
-          sessionStorage.setItem('auto_ledger_biz', JSON.stringify(meData.business));
-          localStorage.setItem('auto_ledger_user', JSON.stringify(meData.user));
-          localStorage.setItem('auto_ledger_biz', JSON.stringify(meData.business));
-          setLoading(false);
-          return;
-        }
-      } catch (e) {}
-
-      // 3. Check Supabase Auth session if no local or cookie session exists
+      // Source of truth is the real Supabase auth session (managed via
+      // cookies + middleware), not localStorage.
       const { data: authData } = await supabase.auth.getUser();
+
       if (authData?.user) {
-        const email = authData.user.email || 'user@workspace.com';
-        const rawName =
-          authData.user.user_metadata?.name ||
-          authData.user.user_metadata?.full_name ||
-          email.split('@')[0];
-        const displayName = rawName.charAt(0).toUpperCase() + rawName.slice(1);
-        const bizName = authData.user.user_metadata?.business_name || `${displayName}'s Workspace`;
-
-        const authUser: Profile = {
-          id: authData.user.id,
-          email,
-          name: displayName,
-          created_at: authData.user.created_at,
-        };
-
-        const authBiz: Business = {
-          id: `biz_${authData.user.id.substring(0, 12)}`,
-          owner_id: authUser.id,
-          business_name: bizName,
-          business_type: 'General Business',
-          currency: 'INR',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
-
-        setUser(authUser);
-        setCurrentBusiness(authBiz);
-        setBusinesses([authBiz]);
-        sessionStorage.setItem('auto_ledger_user', JSON.stringify(authUser));
-        sessionStorage.setItem('auto_ledger_biz', JSON.stringify(authBiz));
-        localStorage.setItem('auto_ledger_user', JSON.stringify(authUser));
-        localStorage.setItem('auto_ledger_biz', JSON.stringify(authBiz));
-        setLoading(false);
-        return;
+        const ok = await loadSessionFromServer();
+        if (!ok) {
+          setUser(null);
+          setCurrentBusiness(null);
+          setBusinesses([]);
+        }
+      } else {
+        setUser(null);
+        setCurrentBusiness(null);
+        setBusinesses([]);
       }
-
-      // Default guest state if not authenticated
+    } catch (err) {
+      console.error('Session initialization error:', err);
       setUser(null);
       setCurrentBusiness(null);
       setBusinesses([]);
-    } catch (err) {
-      console.error('Session initialization error:', err);
     } finally {
       setLoading(false);
     }
@@ -133,220 +91,142 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     initializeTenantSession();
+
+    // Keep state in sync if the user signs in/out in another tab, or the
+    // session gets refreshed.
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) {
+        setUser(null);
+        setCurrentBusiness(null);
+        setBusinesses([]);
+      }
+    });
+
+    return () => {
+      listener.subscription.unsubscribe();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleSetCurrentBusiness = (biz: Business) => {
     setCurrentBusiness(biz);
-    sessionStorage.setItem('auto_ledger_biz', JSON.stringify(biz));
-    localStorage.setItem('auto_ledger_biz', JSON.stringify(biz));
   };
 
-  // Sign In with Email and Password
+  // Sign In with Email and Password — this now genuinely verifies the
+  // password against Supabase Auth. Wrong password / unknown email will
+  // correctly return an error instead of silently "succeeding".
   const signIn = async (emailInput: string, passwordInput: string) => {
     const cleanEmail = emailInput.trim().toLowerCase();
     if (!cleanEmail || !passwordInput) {
       return { success: false, error: 'Please enter your email address and password.' };
     }
 
-    if (passwordInput.length < 6) {
-      return { success: false, error: 'Invalid password. Password must be at least 6 characters.' };
-    }
-
-    // 1. Check local registered accounts map first
-    const regAccountsStr = localStorage.getItem('auto_ledger_registered_accounts');
-    let knownUser: Profile | null = null;
-    let knownBiz: Business | null = null;
-
-    if (regAccountsStr) {
-      try {
-        const regMap = JSON.parse(regAccountsStr);
-        if (regMap[cleanEmail]) {
-          knownUser = regMap[cleanEmail].user || null;
-          knownBiz = regMap[cleanEmail].business || null;
-        }
-      } catch (e) {}
-    }
-
-    // 2. Call backend login API to establish HTTP session cookie
-    try {
-      const apiRes = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: cleanEmail,
-          password: passwordInput,
-          name: knownUser?.name,
-          businessName: knownBiz?.business_name,
-        }),
-      });
-      const apiData = await apiRes.json();
-
-      if (apiData.success && apiData.user && apiData.business) {
-        const finalUser = knownUser || apiData.user;
-        const finalBiz = knownBiz || apiData.business;
-
-        setUser(finalUser);
-        setCurrentBusiness(finalBiz);
-        setBusinesses([finalBiz]);
-
-        // Save to persistent storage
-        sessionStorage.setItem('auto_ledger_user', JSON.stringify(finalUser));
-        sessionStorage.setItem('auto_ledger_biz', JSON.stringify(finalBiz));
-        localStorage.setItem('auto_ledger_user', JSON.stringify(finalUser));
-        localStorage.setItem('auto_ledger_biz', JSON.stringify(finalBiz));
-
-        // Save back into registered accounts map
-        try {
-          const regMap = regAccountsStr ? JSON.parse(regAccountsStr) : {};
-          regMap[cleanEmail] = { user: finalUser, business: finalBiz };
-          localStorage.setItem('auto_ledger_registered_accounts', JSON.stringify(regMap));
-        } catch (e) {}
-
-        return { success: true };
-      }
-    } catch (e) {}
-
-    // 3. Fallback locally if API fails
-    const slug = cleanEmail.replace(/[^a-zA-Z0-9]/g, '_');
-    const rawName = cleanEmail.split('@')[0];
-    const name = rawName.charAt(0).toUpperCase() + rawName.slice(1);
-
-    const fallbackUser: Profile = knownUser || {
-      id: `usr_${slug}`,
+    const { data, error } = await supabase.auth.signInWithPassword({
       email: cleanEmail,
-      name,
-      created_at: new Date().toISOString(),
-    };
+      password: passwordInput,
+    });
 
-    const fallbackBiz: Business = knownBiz || {
-      id: `biz_tenant_${slug}`,
-      owner_id: fallbackUser.id,
-      business_name: `${name}'s Business Workspace`,
-      business_type: 'General Business',
-      currency: 'INR',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
+    if (error || !data.user) {
+      return { success: false, error: error?.message || 'Invalid email or password.' };
+    }
 
-    setUser(fallbackUser);
-    setCurrentBusiness(fallbackBiz);
-    setBusinesses([fallbackBiz]);
-
-    sessionStorage.setItem('auto_ledger_user', JSON.stringify(fallbackUser));
-    sessionStorage.setItem('auto_ledger_biz', JSON.stringify(fallbackBiz));
-    localStorage.setItem('auto_ledger_user', JSON.stringify(fallbackUser));
-    localStorage.setItem('auto_ledger_biz', JSON.stringify(fallbackBiz));
-
-    try {
-      const regMap = regAccountsStr ? JSON.parse(regAccountsStr) : {};
-      regMap[cleanEmail] = { user: fallbackUser, business: fallbackBiz };
-      localStorage.setItem('auto_ledger_registered_accounts', JSON.stringify(regMap));
-    } catch (e) {}
+    const ok = await loadSessionFromServer();
+    if (!ok) {
+      return { success: false, error: 'Signed in, but could not load your workspace. Please try again.' };
+    }
 
     return { success: true };
   };
 
-  // Sign Up with Name, Business Name, Email and Password
+  // Sign Up with Name, Business Name, Email and Password — creates a real
+  // Supabase Auth user. The business workspace is provisioned the first
+  // time /api/auth/me is called (see route), using the metadata below.
   const signUp = async (
     nameInput: string,
     businessNameInput: string,
     emailInput: string,
-    passwordInput: string
+    passwordInput: string,
+    businessType: string = 'General Business',
+    currency: string = 'INR'
   ) => {
     const cleanEmail = emailInput.trim().toLowerCase();
     const cleanName = nameInput.trim() || cleanEmail.split('@')[0];
     const cleanBizName = businessNameInput.trim() || `${cleanName}'s Business Workspace`;
 
-    const slug = cleanEmail.replace(/[^a-zA-Z0-9]/g, '_');
-    const newUser: Profile = {
-      id: `usr_${slug}`,
+    if (!cleanEmail || !passwordInput) {
+      return { success: false, error: 'Please enter your email address and password.' };
+    }
+    if (passwordInput.length < 6) {
+      return { success: false, error: 'Password must be at least 6 characters.' };
+    }
+
+    const { data, error } = await supabase.auth.signUp({
       email: cleanEmail,
-      name: cleanName,
-      created_at: new Date().toISOString(),
-    };
-
-    const newBiz: Business = {
-      id: `biz_tenant_${slug}_${Date.now()}`,
-      owner_id: newUser.id,
-      business_name: cleanBizName,
-      business_type: 'General Business',
-      currency: 'INR',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-
-    // Erase old cached transactions for clean new account start
-    localStorage.removeItem(`autoledger_txs_${newBiz.id}`);
-    sessionStorage.removeItem(`autoledger_txs_${newBiz.id}`);
-
-    // Register into local persistent account map
-    try {
-      const regAccountsStr = localStorage.getItem('auto_ledger_registered_accounts') || '{}';
-      const regMap = JSON.parse(regAccountsStr);
-      regMap[cleanEmail] = { user: newUser, business: newBiz };
-      localStorage.setItem('auto_ledger_registered_accounts', JSON.stringify(regMap));
-    } catch (e) {}
-
-    // Register into backend API synchronously to establish HTTP cookie
-    try {
-      await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: cleanEmail,
-          password: passwordInput,
+      password: passwordInput,
+      options: {
+        data: {
           name: cleanName,
-          businessName: cleanBizName,
-        }),
-      });
-    } catch (e) {}
+          business_name: cleanBizName,
+          business_type: businessType,
+          currency,
+        },
+      },
+    });
 
-    setUser(newUser);
-    setCurrentBusiness(newBiz);
-    setBusinesses([newBiz]);
+    if (error) {
+      return { success: false, error: error.message };
+    }
 
-    sessionStorage.setItem('auto_ledger_user', JSON.stringify(newUser));
-    sessionStorage.setItem('auto_ledger_biz', JSON.stringify(newBiz));
-    localStorage.setItem('auto_ledger_user', JSON.stringify(newUser));
-    localStorage.setItem('auto_ledger_biz', JSON.stringify(newBiz));
+    // If email confirmation is required in your Supabase project settings,
+    // there will be no active session yet.
+    if (!data.session) {
+      return {
+        success: true,
+        needsEmailConfirmation: true,
+        error: 'Account created! Please check your email to confirm your address before signing in.',
+      };
+    }
+
+    const ok = await loadSessionFromServer();
+    if (!ok) {
+      return { success: false, error: 'Account created, but we could not set up your workspace. Please try signing in.' };
+    }
 
     return { success: true };
   };
 
   // Forgot Password Request
-  const forgotPassword = async (emailInput: string, newPasswordInput?: string) => {
+  const forgotPassword = async (emailInput: string) => {
     const cleanEmail = emailInput.trim().toLowerCase();
     if (!cleanEmail) {
       return { success: false, message: '', error: 'Please enter a valid email address.' };
     }
 
-    try {
-      await supabase.auth.resetPasswordForEmail(cleanEmail);
-    } catch (e) {}
+    const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+      redirectTo: typeof window !== 'undefined' ? `${window.location.origin}/login` : undefined,
+    });
+
+    if (error) {
+      return { success: false, message: '', error: error.message };
+    }
 
     return {
       success: true,
-      message: `Password reset instructions have been set for ${cleanEmail}. You can now sign in with your account.`,
+      message: `If an account exists for ${cleanEmail}, a password reset link has been sent.`,
     };
   };
 
   // Logout Functionality
   const logout = async () => {
     try {
-      await fetch('/api/auth/logout', { method: 'POST' });
-    } catch (e) {}
-    try {
       await supabase.auth.signOut();
-    } catch (e) {}
+    } catch (e) {
+      console.error('Error signing out', e);
+    }
 
     setUser(null);
     setCurrentBusiness(null);
     setBusinesses([]);
-
-    sessionStorage.removeItem('auto_ledger_user');
-    sessionStorage.removeItem('auto_ledger_biz');
-    localStorage.removeItem('auto_ledger_user');
-    localStorage.removeItem('auto_ledger_biz');
 
     window.location.href = '/login';
   };
