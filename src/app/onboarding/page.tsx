@@ -67,6 +67,7 @@ function OnboardingForm() {
       }
 
       const res = await signUp(cleanName, cleanBizName, cleanEmail, password, businessType, currency);
+      console.log('[signup] result:', res);
 
       if (!res.success) {
         setSignupError(res.error || 'Could not create your account. Please try again.');
@@ -82,6 +83,7 @@ function OnboardingForm() {
 
       setStep(2);
     } catch (err: any) {
+      console.error('[signup] threw an exception:', err);
       setSignupError(err.message || 'Could not create your account. Please try again.');
     } finally {
       setIsSubmitting(false);
