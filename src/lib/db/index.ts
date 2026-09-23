@@ -690,10 +690,17 @@ export async function addTransaction(
   inMemoryDB.transactions.set(txId, tx);
   inMemoryDB.saveToDisk();
 
-  // Auto-deduct inventory stock if this is a sale transaction
+  inMemoryDB.transactions.set(txId, tx);
+  inMemoryDB.saveToDisk();
+
+  // Auto-update inventory stock based on transaction type
   if (data.transaction_type === 'sale' || data.transaction_type === 'money_received') {
     deductInventoryStock(data.business_id, data.item, data.quantity || 1).catch((e) =>
       console.error('[addTransaction] Auto inventory deduction error:', e)
+    );
+  } else if (data.transaction_type === 'purchase' || data.transaction_type === 'expense') {
+    restockOrUpdateInventoryStock(data.business_id, data.item, data.quantity || 1, data.amount, data.category).catch((e) =>
+      console.error('[addTransaction] Auto inventory restock error:', e)
     );
   }
 
@@ -763,13 +770,68 @@ export async function getBusinessInventory(businessId: string): Promise<Inventor
         .select('*')
         .eq('business_id', businessId)
         .order('item_name', { ascending: true });
-      if (!error && data) return data;
+      if (!error && data && data.length > 0) return data;
     } catch (e) {}
   }
 
-  const items = Array.from(inMemoryDB.inventoryItems.values()).filter(
+  let items = Array.from(inMemoryDB.inventoryItems.values()).filter(
     (i) => i.business_id === businessId
   );
+
+  // Auto-sync items from transactions if not yet present in inventory table
+  const allTxs = Array.from(inMemoryDB.transactions.values()).filter(
+    (t) => t.business_id === businessId
+  );
+
+  const txItemsMap = new Map<string, { purchases: number; sales: number; totalAmount: number; category: string }>();
+
+  allTxs.forEach((tx) => {
+    if (!tx.item) return;
+    const cleanName = tx.item.trim();
+    if (!txItemsMap.has(cleanName.toLowerCase())) {
+      txItemsMap.set(cleanName.toLowerCase(), { purchases: 0, sales: 0, totalAmount: 0, category: tx.category || 'General' });
+    }
+    const entry = txItemsMap.get(cleanName.toLowerCase())!;
+    const qty = Number(tx.quantity) || 1;
+    const amt = Number(tx.amount) || 0;
+
+    if (tx.transaction_type === 'purchase' || tx.transaction_type === 'expense') {
+      entry.purchases += qty;
+      entry.totalAmount += amt;
+    } else if (tx.transaction_type === 'sale' || tx.transaction_type === 'money_received') {
+      entry.sales += qty;
+    }
+  });
+
+  txItemsMap.forEach((data, lowerName) => {
+    const exists = items.some((i) => i.item_name.toLowerCase() === lowerName);
+    if (!exists) {
+      // Find original item name capitalization
+      const origTx = allTxs.find((t) => t.item && t.item.trim().toLowerCase() === lowerName);
+      const displayName = origTx ? origTx.item.trim() : lowerName;
+      const initialStock = data.purchases > 0 ? data.purchases : 20;
+      const currentStock = Math.max(0, initialStock - data.sales);
+      const unitPrice = data.purchases > 0 && data.totalAmount > 0 ? Math.round(data.totalAmount / data.purchases) : 20;
+
+      const autoItem: InventoryItem = {
+        id: `inv_auto_${businessId}_${lowerName.replace(/[^a-z0-9]/g, '_')}`,
+        business_id: businessId,
+        item_name: displayName,
+        sku: `SKU-${displayName.substring(0, 3).toUpperCase()}-01`,
+        unit_price: unitPrice,
+        quantity_in_stock: currentStock,
+        min_stock_alert: 5,
+        category: data.category,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      inMemoryDB.inventoryItems.set(autoItem.id, autoItem);
+      inMemoryDB.saveToDisk();
+      items.push(autoItem);
+    }
+  });
+
   return items.sort((a, b) => a.item_name.localeCompare(b.item_name));
 }
 
@@ -789,6 +851,52 @@ export async function deleteInventoryItem(businessId: string, itemId: string): P
   return false;
 }
 
+export async function restockOrUpdateInventoryStock(
+  businessId: string,
+  itemName: string,
+  restockQuantity: number = 1,
+  amount?: number,
+  category?: string
+): Promise<{ item: InventoryItem; newStock: number }> {
+  const cleanName = itemName.trim();
+  const items = await getBusinessInventory(businessId);
+  
+  let matchedItem = items.find(
+    (i) => i.item_name.trim().toLowerCase() === cleanName.toLowerCase()
+  );
+
+  if (!matchedItem) {
+    matchedItem = items.find(
+      (i) =>
+        i.item_name.toLowerCase().includes(cleanName.toLowerCase()) ||
+        cleanName.toLowerCase().includes(i.item_name.toLowerCase())
+    );
+  }
+
+  const qty = Math.max(1, restockQuantity);
+  const calculatedPrice = amount && amount > 0 ? Math.round(amount / qty) : 20;
+
+  if (matchedItem) {
+    const newStock = matchedItem.quantity_in_stock + qty;
+    const updated = await addOrUpdateInventoryItem({
+      ...matchedItem,
+      quantity_in_stock: newStock,
+      unit_price: matchedItem.unit_price > 0 ? matchedItem.unit_price : calculatedPrice,
+    });
+    return { item: updated, newStock };
+  } else {
+    const newItem = await addOrUpdateInventoryItem({
+      business_id: businessId,
+      item_name: cleanName,
+      unit_price: calculatedPrice,
+      quantity_in_stock: qty,
+      min_stock_alert: 5,
+      category: category || 'Food & Retail',
+    });
+    return { item: newItem, newStock: qty };
+  }
+}
+
 export async function deductInventoryStock(
   businessId: string,
   itemName: string,
@@ -796,8 +904,6 @@ export async function deductInventoryStock(
 ): Promise<{ matched: boolean; item?: InventoryItem; remainingStock?: number }> {
   if (!itemName) return { matched: false };
   const items = await getBusinessInventory(businessId);
-  if (items.length === 0) return { matched: false };
-
   const cleanQuery = itemName.trim().toLowerCase();
   
   // Find matching inventory item (exact name match or substring match, e.g. "maggie", "parle")
@@ -813,7 +919,18 @@ export async function deductInventoryStock(
     );
   }
 
-  if (!matchedItem) return { matched: false };
+  if (!matchedItem) {
+    // If item doesn't exist yet, auto-create it with stock so sales also build inventory
+    const autoCreated = await addOrUpdateInventoryItem({
+      business_id: businessId,
+      item_name: itemName.trim(),
+      unit_price: 20,
+      quantity_in_stock: Math.max(0, 20 - Math.abs(soldQuantity)),
+      min_stock_alert: 5,
+      category: 'Food & Retail',
+    });
+    return { matched: true, item: autoCreated, remainingStock: autoCreated.quantity_in_stock };
+  }
 
   const newStock = Math.max(0, matchedItem.quantity_in_stock - Math.abs(soldQuantity));
   const updated = await addOrUpdateInventoryItem({
