@@ -8,6 +8,8 @@ import {
   Transaction,
   SyncLog,
   TransactionType,
+  InventoryItem,
+  InventorySummary,
 } from '../types';
 import { createClient } from '@supabase/supabase-js';
 import fs from 'fs';
@@ -41,6 +43,7 @@ class InMemoryStore {
   googleConnections: Map<string, GoogleConnection> = new Map();
   transactions: Map<string, Transaction> = new Map();
   syncLogs: Map<string, SyncLog> = new Map();
+  inventoryItems: Map<string, InventoryItem> = new Map();
 
   constructor() {
     this.seedDemoData();
@@ -58,6 +61,7 @@ class InMemoryStore {
         googleConnections: Array.from(this.googleConnections.entries()),
         transactions: Array.from(this.transactions.entries()),
         syncLogs: Array.from(this.syncLogs.entries()),
+        inventoryItems: Array.from(this.inventoryItems.entries()),
       };
       fs.writeFileSync(TMP_STORE_PATH, JSON.stringify(data), 'utf-8');
     } catch (e) {}
@@ -76,6 +80,7 @@ class InMemoryStore {
         if (data.googleConnections) this.googleConnections = new Map(data.googleConnections);
         if (data.transactions) this.transactions = new Map(data.transactions);
         if (data.syncLogs) this.syncLogs = new Map(data.syncLogs);
+        if (data.inventoryItems) this.inventoryItems = new Map(data.inventoryItems);
       }
     } catch (e) {}
   }
@@ -133,6 +138,44 @@ class InMemoryStore {
       connected_at: new Date().toISOString(),
       status: 'active',
     };
+
+    // Demo Inventory Items for bizDemo
+    const now = new Date();
+    const in30Days = new Date(now.getTime() + 30 * 86400000).toISOString().split('T')[0];
+    const in5Days = new Date(now.getTime() + 5 * 86400000).toISOString().split('T')[0];
+
+    const demoInv1: InventoryItem = {
+      id: 'inv_maggie_demo',
+      business_id: bizDemo.id,
+      item_name: 'Maggie 2-Min Noodles',
+      sku: 'SKU-MAG-01',
+      unit_price: 20,
+      quantity_in_stock: 50,
+      min_stock_alert: 10,
+      category: 'Food & Retail',
+      expiry_date: in30Days,
+      batch_number: 'BATCH-2026-08',
+      created_at: now.toISOString(),
+      updated_at: now.toISOString(),
+    };
+
+    const demoInv2: InventoryItem = {
+      id: 'inv_milk_demo',
+      business_id: bizDemo.id,
+      item_name: 'Fresh Dairy Milk 1L',
+      sku: 'SKU-MLK-02',
+      unit_price: 65,
+      quantity_in_stock: 4,
+      min_stock_alert: 5,
+      category: 'Dairy',
+      expiry_date: in5Days,
+      batch_number: 'BATCH-MLK-99',
+      created_at: now.toISOString(),
+      updated_at: now.toISOString(),
+    };
+
+    this.inventoryItems.set(demoInv1.id, demoInv1);
+    this.inventoryItems.set(demoInv2.id, demoInv2);
   }
 }
 
@@ -646,7 +689,179 @@ export async function addTransaction(
 
   inMemoryDB.transactions.set(txId, tx);
   inMemoryDB.saveToDisk();
+
+  // Auto-deduct inventory stock if this is a sale transaction
+  if (data.transaction_type === 'sale' || data.transaction_type === 'money_received') {
+    deductInventoryStock(data.business_id, data.item, data.quantity || 1).catch((e) =>
+      console.error('[addTransaction] Auto inventory deduction error:', e)
+    );
+  }
+
   return tx;
+}
+
+// INVENTORY MANAGEMENT LOGIC
+export async function addOrUpdateInventoryItem(
+  data: Omit<InventoryItem, 'id' | 'created_at' | 'updated_at'> & { id?: string }
+): Promise<InventoryItem> {
+  const now = new Date().toISOString();
+  const itemId = data.id || `inv_${crypto.randomUUID()}`;
+
+  if (supabase) {
+    try {
+      const { data: record, error } = await supabase
+        .from('inventory_items')
+        .upsert({
+          id: itemId,
+          business_id: data.business_id,
+          item_name: data.item_name,
+          sku: data.sku || null,
+          unit_price: data.unit_price || 0,
+          quantity_in_stock: data.quantity_in_stock || 0,
+          min_stock_alert: data.min_stock_alert || 5,
+          category: data.category || 'General',
+          expiry_date: data.expiry_date || null,
+          batch_number: data.batch_number || null,
+          updated_at: now,
+        })
+        .select()
+        .single();
+      if (!error && record) {
+        inMemoryDB.inventoryItems.set(record.id, record);
+        inMemoryDB.saveToDisk();
+        return record;
+      }
+    } catch (e) {}
+  }
+
+  const existing = inMemoryDB.inventoryItems.get(itemId);
+  const item: InventoryItem = {
+    id: itemId,
+    business_id: data.business_id,
+    item_name: data.item_name,
+    sku: data.sku || existing?.sku || null,
+    unit_price: data.unit_price,
+    quantity_in_stock: data.quantity_in_stock,
+    min_stock_alert: data.min_stock_alert ?? existing?.min_stock_alert ?? 5,
+    category: data.category || existing?.category || 'General',
+    expiry_date: data.expiry_date || existing?.expiry_date || null,
+    batch_number: data.batch_number || existing?.batch_number || null,
+    created_at: existing?.created_at || now,
+    updated_at: now,
+  };
+
+  inMemoryDB.inventoryItems.set(itemId, item);
+  inMemoryDB.saveToDisk();
+  return item;
+}
+
+export async function getBusinessInventory(businessId: string): Promise<InventoryItem[]> {
+  if (supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('inventory_items')
+        .select('*')
+        .eq('business_id', businessId)
+        .order('item_name', { ascending: true });
+      if (!error && data) return data;
+    } catch (e) {}
+  }
+
+  const items = Array.from(inMemoryDB.inventoryItems.values()).filter(
+    (i) => i.business_id === businessId
+  );
+  return items.sort((a, b) => a.item_name.localeCompare(b.item_name));
+}
+
+export async function deleteInventoryItem(businessId: string, itemId: string): Promise<boolean> {
+  if (supabase) {
+    try {
+      await supabase.from('inventory_items').delete().eq('id', itemId).eq('business_id', businessId);
+    } catch (e) {}
+  }
+
+  const existing = inMemoryDB.inventoryItems.get(itemId);
+  if (existing && existing.business_id === businessId) {
+    inMemoryDB.inventoryItems.delete(itemId);
+    inMemoryDB.saveToDisk();
+    return true;
+  }
+  return false;
+}
+
+export async function deductInventoryStock(
+  businessId: string,
+  itemName: string,
+  soldQuantity: number = 1
+): Promise<{ matched: boolean; item?: InventoryItem; remainingStock?: number }> {
+  if (!itemName) return { matched: false };
+  const items = await getBusinessInventory(businessId);
+  if (items.length === 0) return { matched: false };
+
+  const cleanQuery = itemName.trim().toLowerCase();
+  
+  // Find matching inventory item (exact name match or substring match, e.g. "maggie", "parle")
+  let matchedItem = items.find(
+    (i) => i.item_name.trim().toLowerCase() === cleanQuery
+  );
+
+  if (!matchedItem) {
+    matchedItem = items.find(
+      (i) =>
+        i.item_name.toLowerCase().includes(cleanQuery) ||
+        cleanQuery.includes(i.item_name.toLowerCase())
+    );
+  }
+
+  if (!matchedItem) return { matched: false };
+
+  const newStock = Math.max(0, matchedItem.quantity_in_stock - Math.abs(soldQuantity));
+  const updated = await addOrUpdateInventoryItem({
+    ...matchedItem,
+    quantity_in_stock: newStock,
+  });
+
+  return { matched: true, item: updated, remainingStock: newStock };
+}
+
+export async function getInventorySummary(businessId: string): Promise<InventorySummary> {
+  const items = await getBusinessInventory(businessId);
+  const todayStr = new Date().toISOString().split('T')[0];
+  const in15DaysStr = new Date(Date.now() + 15 * 86400000).toISOString().split('T')[0];
+
+  let totalStockQuantity = 0;
+  let totalInventoryValue = 0;
+  let lowStockCount = 0;
+  let expiringSoonCount = 0;
+  let expiredCount = 0;
+
+  items.forEach((item) => {
+    const qty = Number(item.quantity_in_stock) || 0;
+    const price = Number(item.unit_price) || 0;
+    totalStockQuantity += qty;
+    totalInventoryValue += qty * price;
+
+    if (qty <= (item.min_stock_alert ?? 5)) {
+      lowStockCount++;
+    }
+
+    if (item.expiry_date) {
+      if (item.expiry_date < todayStr) {
+        expiredCount++;
+      } else if (item.expiry_date <= in15DaysStr) {
+        expiringSoonCount++;
+      }
+    }
+  });
+
+  return {
+    totalItems: items.length,
+    totalStockQuantity,
+    totalInventoryValue,
+    lowStockCount,
+    expiringSoonCount,
+    expiredCount,
+  };
 }
 
 export async function getBusinessTransactions(

@@ -122,3 +122,28 @@ export interface AIExtractionResult {
     transaction_date?: string;
   };
 }
+
+export interface InventoryItem {
+  id: string;
+  business_id: string;
+  item_name: string;
+  sku?: string | null;
+  unit_price: number;
+  quantity_in_stock: number;
+  min_stock_alert: number;
+  category: string;
+  expiry_date?: string | null; // ISO YYYY-MM-DD
+  batch_number?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InventorySummary {
+  totalItems: number;
+  totalStockQuantity: number;
+  totalInventoryValue: number;
+  lowStockCount: number;
+  expiringSoonCount: number;
+  expiredCount: number;
+}
+

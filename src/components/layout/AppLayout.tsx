@@ -21,6 +21,7 @@ import {
   LogIn,
   CheckCircle2,
   AlertCircle,
+  Package,
 } from 'lucide-react';
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
@@ -37,6 +38,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   const navItems = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+    { name: 'Inventory', href: '/dashboard/inventory', icon: Package },
     { name: 'Khata', href: '/dashboard/khata', icon: BookOpen },
     { name: 'Telegram', href: '/dashboard/telegram', icon: Send },
     { name: 'Insights', href: '/dashboard/insights', icon: TrendingUp },
@@ -46,6 +48,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   const mobileNavItems = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+    { name: 'Inventory', href: '/dashboard/inventory', icon: Package },
     { name: 'Khata', href: '/dashboard/khata', icon: BookOpen },
     { name: 'Insights', href: '/dashboard/insights', icon: TrendingUp },
     { name: 'Reports', href: '/dashboard/reports', icon: FileSpreadsheet },

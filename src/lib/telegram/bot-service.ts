@@ -6,6 +6,8 @@ import {
   addTransaction,
   getBusinessTransactions,
   getBusinessFinancialMetrics,
+  getBusinessInventory,
+  getInventorySummary,
   inMemoryDB,
 } from '../db';
 import { extractTransactionFromNaturalLanguage } from '../ai/transaction-extractor';
@@ -323,6 +325,74 @@ export async function processTelegramWebhookUpdate(update: any): Promise<{ succe
 
       await sendTelegramMessage(chatId, historyMsg);
       return { success: true, responseMessage: 'Sent daily transaction history to Telegram.' };
+    }
+  }
+
+  // 1.7 Handle Inventory & Stock Commands (/inventory, /stock, /expiry, "inventory", "stock")
+  if (
+    lowerText.startsWith('/inventory') ||
+    lowerText.startsWith('/stock') ||
+    lowerText.startsWith('/expiry') ||
+    lowerText.includes('inventory') ||
+    lowerText === 'stock'
+  ) {
+    let connection = await getTelegramConnectionByChatId(chatId);
+    if (!connection) {
+      const targetBiz = resolveActiveTenantWorkspace();
+      connection = await createTelegramConnection(targetBiz.id, userId, chatId, username);
+    }
+
+    if (connection) {
+      const biz = (await getBusiness(connection.business_id)) || resolveActiveTenantWorkspace();
+      const inventory = await getBusinessInventory(biz.id);
+      const summary = await getInventorySummary(biz.id);
+      const cur = biz.currency === 'USD' ? '$' : '₹';
+      const todayStr = new Date().toISOString().split('T')[0];
+      const in15DaysStr = new Date(Date.now() + 15 * 86400000).toISOString().split('T')[0];
+
+      if (inventory.length === 0) {
+        const emptyStockMsg =
+          `📦 <b>Inventory & Stock Overview</b>\n` +
+          `<i>Workspace: ${biz.business_name}</i>\n\n` +
+          `ℹ️ No inventory items loaded yet.\n\n` +
+          `🌐 Visit your Web Dashboard to load products, set price, and track expiry dates:\n` +
+          `<b>https://bookeeping-sas.netlify.app/dashboard/inventory</b>`;
+        await sendTelegramMessage(chatId, emptyStockMsg);
+        return { success: true, responseMessage: 'Sent empty inventory response.' };
+      }
+
+      let stockListStr = '';
+      inventory.slice(0, 10).forEach((item, index) => {
+        let alertBadge = '✅';
+        if (item.quantity_in_stock <= (item.min_stock_alert ?? 5)) {
+          alertBadge = '⚠️ Low Stock';
+        }
+        if (item.expiry_date) {
+          if (item.expiry_date < todayStr) {
+            alertBadge = '🚨 EXPIRED';
+          } else if (item.expiry_date <= in15DaysStr) {
+            alertBadge = '⏳ Expiring Soon';
+          }
+        }
+
+        const expStr = item.expiry_date ? ` <i>(Exp: ${item.expiry_date})</i>` : '';
+        stockListStr += `${index + 1}. <b>${item.item_name}</b>: ${item.quantity_in_stock} units — ${cur}${item.unit_price}/unit ${expStr} ${alertBadge}\n`;
+      });
+
+      const invMsg =
+        `📦 <b>Inventory Stock & Expiry Report</b>\n` +
+        `<i>Workspace: ${biz.business_name}</i>\n\n` +
+        stockListStr +
+        `\n───────────────\n` +
+        `📊 <b>Total Products Loaded:</b> ${summary.totalItems}\n` +
+        `📦 <b>Total Stock Quantity:</b> ${summary.totalStockQuantity} units\n` +
+        `💰 <b>Total Inventory Value:</b> ${cur}${summary.totalInventoryValue.toLocaleString('en-IN')}\n` +
+        `⚠️ <b>Low Stock Items:</b> ${summary.lowStockCount}\n` +
+        `🚨 <b>Expiring / Expired Items:</b> ${summary.expiringSoonCount + summary.expiredCount}\n\n` +
+        `🌐 <i>Manage stock & add new products at https://bookeeping-sas.netlify.app/dashboard/inventory</i>`;
+
+      await sendTelegramMessage(chatId, invMsg);
+      return { success: true, responseMessage: 'Sent inventory report to Telegram.' };
     }
   }
 
