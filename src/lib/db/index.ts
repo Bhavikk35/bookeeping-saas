@@ -749,7 +749,10 @@ export async function addOrUpdateInventoryItem(
         inMemoryDB.saveToDisk();
         return record;
       }
-    } catch (e) {}
+      if (error) console.error('[addOrUpdateInventoryItem] Supabase upsert failed:', error.message, error.details);
+    } catch (e: any) {
+      console.error('[addOrUpdateInventoryItem] Supabase upsert threw, falling back to inMemoryDB:', e.message);
+    }
   }
 
   const existing = inMemoryDB.inventoryItems.get(itemId);
@@ -782,7 +785,10 @@ export async function getBusinessInventory(businessId: string): Promise<Inventor
         .eq('business_id', businessId)
         .order('item_name', { ascending: true });
       if (!error && data && data.length > 0) return data;
-    } catch (e) {}
+      if (error) console.error('[getBusinessInventory] Supabase select failed:', error.message, error.details);
+    } catch (e: any) {
+      console.error('[getBusinessInventory] Supabase select threw:', e.message);
+    }
   }
 
   let items = Array.from(inMemoryDB.inventoryItems.values()).filter(
