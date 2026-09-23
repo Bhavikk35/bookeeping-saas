@@ -18,7 +18,9 @@ function getTelegramBotToken(): string {
   if (envToken && envToken.includes(':')) {
     return envToken;
   }
-  return '8939497312:AAHCyuAhHstCoVqWtOBJtE843Wo9WYo2f3Y';
+  throw new Error(
+    'TELEGRAM_BOT_TOKEN is not set. Add it in Netlify environment variables and redeploy.'
+  );
 }
 
 function resolveActiveTenantWorkspace(businessId?: string): Business {
