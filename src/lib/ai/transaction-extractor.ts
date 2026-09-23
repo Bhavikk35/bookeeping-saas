@@ -257,6 +257,26 @@ function heuristicExtractTransaction(text: string): AIExtractionResult {
 }
 
 /**
+ * Extracts an expiry date mentioned anywhere in the message, independent of
+ * which sale/purchase pattern matched. Supports "expiry date is 20-07-2026",
+ * "expiry 20/07/2026", "exp: 2026-07-20", etc. Indian dates are DD-MM-YYYY.
+ */
+function extractExpiryDateFromText(text: string): string | null {
+  const isoMatch = text.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+  if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+
+  const dmyMatch = text.match(
+    /(?:expiry|expires?|exp)\D{0,10}(\d{1,2})[-/](\d{1,2})[-/](\d{4})/i
+  );
+  if (dmyMatch) {
+    const [, d, m, y] = dmyMatch;
+    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  }
+
+  return null;
+}
+
+/**
  * Full Multilingual AI Pipeline using Gemini 2.5 Flash with fallback to heuristic extractor.
  */
 export async function extractTransactionFromNaturalLanguage(
@@ -291,7 +311,8 @@ Rules:
    IMPORTANT: Any item + number phrase (e.g. "maggie 20 la", "maggie 20", "samosa 30") without explicit expense/purchase keywords MUST be classified as "sale"!
 3. Extract exact numeric amount and item name (capitalize and translate item name cleanly).
 4. Assign appropriate category (e.g., "Food & Retail Sales", "Inventory & Raw Materials", "Utilities & Overhead", "Customer Settlement", "Supplier Settlement").
-5. If clear, set isAmbiguous = false and populate the transaction object.`;
+5. If the message mentions a product expiry date (e.g. "expiry date is 20-07-2026", "exp 20/07/2026"), convert it to ISO format YYYY-MM-DD and set it as expiry_date. Indian-format dates are DD-MM-YYYY, not MM-DD-YYYY. If no expiry is mentioned, omit the field.
+6. If clear, set isAmbiguous = false and populate the transaction object.`;
 
     const response = await aiClient.models.generateContent({
       model: 'gemini-2.5-flash',
@@ -317,6 +338,7 @@ Rules:
                 payment_status: { type: Type.STRING },
                 description: { type: Type.STRING },
                 transaction_date: { type: Type.STRING },
+                expiry_date: { type: Type.STRING },
               },
             },
           },
@@ -338,6 +360,9 @@ Rules:
         parsed.transaction.payment_status = (parsed.transaction.payment_status as any) || 'paid';
         parsed.transaction.transaction_date =
           parsed.transaction.transaction_date || new Date().toISOString().split('T')[0];
+        if (!parsed.transaction.expiry_date) {
+          parsed.transaction.expiry_date = extractExpiryDateFromText(text);
+        }
       }
       return parsed;
     }
@@ -345,5 +370,9 @@ Rules:
     console.warn('Gemini AI call failed, falling back to heuristic extractor:', err.message);
   }
 
-  return heuristicExtractTransaction(text);
+  const heuristicResult = heuristicExtractTransaction(text);
+  if (heuristicResult.transaction && !heuristicResult.transaction.expiry_date) {
+    heuristicResult.transaction.expiry_date = extractExpiryDateFromText(text);
+  }
+  return heuristicResult;
 }

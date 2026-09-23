@@ -661,19 +661,42 @@ export async function disconnectGoogleConnection(businessId: string): Promise<vo
 
 // TRANSACTIONS LOGIC (ALWAYS SCOPED TO business_id AND RELIABLY SAVED)
 export async function addTransaction(
-  data: Omit<Transaction, 'id' | 'created_at' | 'updated_at'>
+  data: Omit<Transaction, 'id' | 'created_at' | 'updated_at'> & { expiry_date?: string | null }
 ): Promise<Transaction> {
+  const { expiry_date, ...txData } = data;
   const txId = `tx_${crypto.randomUUID()}`;
   const now = new Date().toISOString();
+
+  // Runs no matter which storage path saved the transaction, so inventory
+  // never gets skipped when Supabase is configured and succeeds.
+  const syncInventory = () => {
+    if (txData.transaction_type === 'sale' || txData.transaction_type === 'money_received') {
+      deductInventoryStock(txData.business_id, txData.item, txData.quantity || 1).catch((e) =>
+        console.error('[addTransaction] Auto inventory deduction error:', e)
+      );
+    } else if (txData.transaction_type === 'purchase' || txData.transaction_type === 'expense') {
+      restockOrUpdateInventoryStock(
+        txData.business_id,
+        txData.item,
+        txData.quantity || 1,
+        txData.amount,
+        txData.category,
+        expiry_date
+      ).catch((e) => console.error('[addTransaction] Auto inventory restock error:', e));
+    }
+  };
 
   if (supabase) {
     try {
       const { data: tx, error } = await supabase
         .from('transactions')
-        .insert({ ...data })
+        .insert({ ...txData })
         .select()
         .single();
-      if (!error && tx) return tx;
+      if (!error && tx) {
+        syncInventory();
+        return tx;
+      }
       if (error) console.error('[addTransaction] Supabase insert failed:', error.message, error.details);
     } catch (e: any) {
       console.error('[addTransaction] Supabase insert threw, falling back to inMemoryDB:', e.message);
@@ -682,7 +705,7 @@ export async function addTransaction(
 
   const tx: Transaction = {
     id: txId,
-    ...data,
+    ...txData,
     created_at: now,
     updated_at: now,
   };
@@ -690,19 +713,7 @@ export async function addTransaction(
   inMemoryDB.transactions.set(txId, tx);
   inMemoryDB.saveToDisk();
 
-  inMemoryDB.transactions.set(txId, tx);
-  inMemoryDB.saveToDisk();
-
-  // Auto-update inventory stock based on transaction type
-  if (data.transaction_type === 'sale' || data.transaction_type === 'money_received') {
-    deductInventoryStock(data.business_id, data.item, data.quantity || 1).catch((e) =>
-      console.error('[addTransaction] Auto inventory deduction error:', e)
-    );
-  } else if (data.transaction_type === 'purchase' || data.transaction_type === 'expense') {
-    restockOrUpdateInventoryStock(data.business_id, data.item, data.quantity || 1, data.amount, data.category).catch((e) =>
-      console.error('[addTransaction] Auto inventory restock error:', e)
-    );
-  }
+  syncInventory();
 
   return tx;
 }
@@ -856,7 +867,8 @@ export async function restockOrUpdateInventoryStock(
   itemName: string,
   restockQuantity: number = 1,
   amount?: number,
-  category?: string
+  category?: string,
+  expiryDate?: string | null
 ): Promise<{ item: InventoryItem; newStock: number }> {
   const cleanName = itemName.trim();
   const items = await getBusinessInventory(businessId);
@@ -882,6 +894,7 @@ export async function restockOrUpdateInventoryStock(
       ...matchedItem,
       quantity_in_stock: newStock,
       unit_price: matchedItem.unit_price > 0 ? matchedItem.unit_price : calculatedPrice,
+      expiry_date: expiryDate ?? matchedItem.expiry_date,
     });
     return { item: updated, newStock };
   } else {
@@ -892,6 +905,7 @@ export async function restockOrUpdateInventoryStock(
       quantity_in_stock: qty,
       min_stock_alert: 5,
       category: category || 'Food & Retail',
+      expiry_date: expiryDate ?? null,
     });
     return { item: newItem, newStock: qty };
   }

@@ -461,6 +461,7 @@ export async function processTelegramWebhookUpdate(update: any): Promise<{ succe
     description: parsedTx.description || text,
     transaction_date: parsedTx.transaction_date || new Date().toISOString().split('T')[0],
     source: 'telegram',
+    expiry_date: parsedTx.expiry_date || null,
   });
 
   // 5. Sync to Google Sheets (Async Non-Blocking)

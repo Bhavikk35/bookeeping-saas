@@ -120,6 +120,7 @@ export interface AIExtractionResult {
     payment_status: PaymentStatus;
     description?: string;
     transaction_date?: string;
+    expiry_date?: string | null; // ISO YYYY-MM-DD, extracted from stock/expiry mentions
   };
 }
 
