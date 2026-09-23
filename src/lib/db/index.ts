@@ -535,6 +535,50 @@ export async function getTelegramConnectionByChatId(chatId: string): Promise<Tel
   return null;
 }
 
+export async function setTelegramConnectionPending(
+  connection: TelegramConnection,
+  pendingMessage: string | null
+): Promise<void> {
+  const pending_since = pendingMessage ? new Date().toISOString() : null;
+
+  if (supabase) {
+    try {
+      const { error } = await supabase
+        .from('telegram_connections')
+        .update({ pending_message: pendingMessage, pending_since })
+        .eq('id', connection.id);
+      if (error) console.error('[setTelegramConnectionPending] Supabase update failed:', error.message);
+    } catch (e: any) {
+      console.error('[setTelegramConnectionPending] Supabase update threw:', e.message);
+    }
+  }
+
+  const existing = inMemoryDB.telegramConnections.get(connection.telegram_chat_id);
+  if (existing) {
+    existing.pending_message = pendingMessage;
+    existing.pending_since = pending_since;
+    inMemoryDB.telegramConnections.set(connection.telegram_chat_id, existing);
+    inMemoryDB.saveToDisk();
+  }
+}
+
+export async function getAllActiveTelegramConnections(): Promise<TelegramConnection[]> {
+  if (supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('telegram_connections')
+        .select('*')
+        .eq('status', 'active');
+      if (!error && data) return data;
+      if (error) console.error('[getAllActiveTelegramConnections] Supabase select failed:', error.message);
+    } catch (e: any) {
+      console.error('[getAllActiveTelegramConnections] Supabase select threw:', e.message);
+    }
+  }
+
+  return Array.from(inMemoryDB.telegramConnections.values()).filter((c) => c.status === 'active');
+}
+
 export async function getTelegramConnectionForBusiness(businessId: string): Promise<TelegramConnection | null> {
   if (supabase) {
     try {
@@ -668,21 +712,25 @@ export async function addTransaction(
   const now = new Date().toISOString();
 
   // Runs no matter which storage path saved the transaction, so inventory
-  // never gets skipped when Supabase is configured and succeeds.
-  const syncInventory = () => {
-    if (txData.transaction_type === 'sale' || txData.transaction_type === 'money_received') {
-      deductInventoryStock(txData.business_id, txData.item, txData.quantity || 1).catch((e) =>
-        console.error('[addTransaction] Auto inventory deduction error:', e)
-      );
-    } else if (txData.transaction_type === 'purchase' || txData.transaction_type === 'expense') {
-      restockOrUpdateInventoryStock(
-        txData.business_id,
-        txData.item,
-        txData.quantity || 1,
-        txData.amount,
-        txData.category,
-        expiry_date
-      ).catch((e) => console.error('[addTransaction] Auto inventory restock error:', e));
+  // never gets skipped when Supabase is configured and succeeds. Awaited
+  // (not fire-and-forget) because serverless functions can freeze right
+  // after the response is sent, killing any unfinished background promise.
+  const syncInventory = async () => {
+    try {
+      if (txData.transaction_type === 'sale' || txData.transaction_type === 'money_received') {
+        await deductInventoryStock(txData.business_id, txData.item, txData.quantity || 1);
+      } else if (txData.transaction_type === 'purchase' || txData.transaction_type === 'expense') {
+        await restockOrUpdateInventoryStock(
+          txData.business_id,
+          txData.item,
+          txData.quantity || 1,
+          txData.amount,
+          txData.category,
+          expiry_date
+        );
+      }
+    } catch (e) {
+      console.error('[addTransaction] Auto inventory sync error:', e);
     }
   };
 
@@ -694,7 +742,7 @@ export async function addTransaction(
         .select()
         .single();
       if (!error && tx) {
-        syncInventory();
+        await syncInventory();
         return tx;
       }
       if (error) console.error('[addTransaction] Supabase insert failed:', error.message, error.details);
@@ -713,7 +761,7 @@ export async function addTransaction(
   inMemoryDB.transactions.set(txId, tx);
   inMemoryDB.saveToDisk();
 
-  syncInventory();
+  await syncInventory();
 
   return tx;
 }

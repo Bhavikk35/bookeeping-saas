@@ -8,6 +8,7 @@ import {
   getBusinessFinancialMetrics,
   getBusinessInventory,
   getInventorySummary,
+  setTelegramConnectionPending,
   inMemoryDB,
 } from '../db';
 import { extractTransactionFromNaturalLanguage } from '../ai/transaction-extractor';
@@ -425,13 +426,57 @@ export async function processTelegramWebhookUpdate(update: any): Promise<{ succe
     return { success: true, responseMessage: 'Sent voice/text prompt.' };
   }
 
-  // 3. AI Transaction Extraction Pipeline
-  const extraction = await extractTransactionFromNaturalLanguage(text, currency);
+  // 3. Multi-step conversation memory.
+  // If the bot previously asked a clarifying question, combine what the user
+  // said back then with what they just sent, instead of parsing the new
+  // message in isolation (which is why "1000" sent alone used to mean nothing).
+  const PENDING_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+  const hasPending =
+    !!connection.pending_message &&
+    !!connection.pending_since &&
+    Date.now() - new Date(connection.pending_since).getTime() < PENDING_TIMEOUT_MS;
+
+  if (/^(cancel|reset|nevermind|never mind|clear)$/i.test(text.trim())) {
+    if (hasPending) {
+      await setTelegramConnectionPending(connection, null);
+      await sendTelegramMessage(chatId, `✅ Cleared. Send your transaction whenever you're ready.`);
+      return { success: true, responseMessage: 'Cleared pending conversation state.' };
+    }
+  }
+
+  // 4. AI Transaction Extraction Pipeline
+  let extraction = await extractTransactionFromNaturalLanguage(text, currency);
+  let usedCombinedText = false;
+
+  if ((extraction.isAmbiguous || !extraction.transaction) && hasPending) {
+    const combinedText = `${connection.pending_message} ${text}`.trim();
+    const combinedExtraction = await extractTransactionFromNaturalLanguage(combinedText, currency);
+    if (!combinedExtraction.isAmbiguous && combinedExtraction.transaction) {
+      extraction = combinedExtraction;
+      usedCombinedText = true;
+    } else {
+      // Still not enough info even combined — keep accumulating and ask again.
+      await setTelegramConnectionPending(connection, combinedText);
+      const clarificationMsg = `❓ <b>Clarification Needed</b>\n\n${
+        combinedExtraction.clarificationMessage || extraction.clarificationMessage || 'Please clarify the transaction type or amount.'
+      }\n\n<i>(Reply "cancel" to start over.)</i>`;
+      await sendTelegramMessage(chatId, clarificationMsg);
+      return { success: true, responseMessage: 'Asked for further clarification, context retained.' };
+    }
+  }
 
   if (extraction.isAmbiguous || !extraction.transaction) {
-    const clarificationMsg = `❓ <b>Clarification Needed</b>\n\n${extraction.clarificationMessage || 'Please clarify the transaction type or amount.'}`;
+    // Fresh ambiguous message with no usable pending context — start tracking it.
+    await setTelegramConnectionPending(connection, text);
+    const clarificationMsg = `❓ <b>Clarification Needed</b>\n\n${extraction.clarificationMessage || 'Please clarify the transaction type or amount.'}\n\n<i>(Reply "cancel" to start over.)</i>`;
     await sendTelegramMessage(chatId, clarificationMsg);
     return { success: true, responseMessage: 'Asked for user clarification.' };
+  }
+
+  // Successfully resolved (whether from this message alone or combined with
+  // prior context) — clear any pending state before saving.
+  if (hasPending || usedCombinedText) {
+    await setTelegramConnectionPending(connection, null);
   }
 
   const parsedTx = extraction.transaction;
@@ -441,7 +486,7 @@ export async function processTelegramWebhookUpdate(update: any): Promise<{ succe
     cleanItem = parsedTx.category || text || 'General Transaction';
   }
 
-  // 4. Save to Database (Multi-Tenant Scoped to Active Tenant Workspace)
+  // 5. Save to Database (Multi-Tenant Scoped to Active Tenant Workspace)
   // NOTE: created_by must be a real profile UUID (it's a foreign key to
   // profiles.id) — the Telegram numeric user ID is NOT a valid value here,
   // so we attribute Telegram-sourced transactions to the business owner.
@@ -464,12 +509,12 @@ export async function processTelegramWebhookUpdate(update: any): Promise<{ succe
     expiry_date: parsedTx.expiry_date || null,
   });
 
-  // 5. Sync to Google Sheets (Async Non-Blocking)
+  // 6. Sync to Google Sheets (Async Non-Blocking)
   syncTransactionToGoogleSheet(savedTx).catch((e) =>
     console.error('Async Google Sheet sync failed:', e)
   );
 
-  // 6. Confirmation Response to Telegram User
+  // 7. Confirmation Response to Telegram User
   const typeEmoji =
     savedTx.transaction_type === 'sale'
       ? '📈 Sale'

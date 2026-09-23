@@ -58,6 +58,8 @@ export interface TelegramConnection {
   connected_at: string;
   status: 'active' | 'disconnected';
   last_message_at: string | null;
+  pending_message?: string | null;
+  pending_since?: string | null;
 }
 
 export interface GoogleConnection {
