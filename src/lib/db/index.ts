@@ -771,7 +771,9 @@ export async function addOrUpdateInventoryItem(
   data: Omit<InventoryItem, 'id' | 'created_at' | 'updated_at'> & { id?: string }
 ): Promise<InventoryItem> {
   const now = new Date().toISOString();
-  const itemId = data.id || `inv_${crypto.randomUUID()}`;
+  // Must be a plain UUID (no prefix) — inventory_items.id is a Postgres
+  // `uuid` column, which rejects anything not in pure UUID format.
+  const itemId = data.id || crypto.randomUUID();
 
   if (supabase) {
     try {
