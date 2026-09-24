@@ -94,6 +94,10 @@ export interface Transaction {
   source: TransactionSource;
   created_at: string;
   updated_at: string;
+  // Profit margin: cost snapshot at time of sale
+  unit_cost_at_sale?: number | null;
+  // Udhaar: links transaction to a customer
+  customer_id?: string | null;
 }
 
 export interface SyncLog {
@@ -131,7 +135,8 @@ export interface InventoryItem {
   business_id: string;
   item_name: string;
   sku?: string | null;
-  unit_price: number;
+  unit_price: number;       // Selling price per unit
+  cost_price?: number;      // Purchase/restock cost per unit (for profit margin)
   quantity_in_stock: number;
   min_stock_alert: number;
   category: string;
@@ -150,3 +155,29 @@ export interface InventorySummary {
   expiredCount: number;
 }
 
+// ── Udhaar (Credit) Management ──────────────────────────────────────────────
+
+export interface Customer {
+  id: string;
+  business_id: string;
+  name: string;
+  phone?: string | null;
+  balance_due: number;          // Total outstanding udhaar (positive = owes money)
+  total_udhaar_given: number;   // Lifetime credit extended
+  total_paid_back: number;      // Lifetime repayments received
+  oldest_unpaid_since: string | null; // ISO date of oldest unpaid transaction
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CustomerLedgerEntry {
+  id: string;
+  customer_id: string;
+  business_id: string;
+  type: 'udhaar' | 'payment'; // credit given or payment received
+  amount: number;
+  description: string | null;
+  transaction_id: string | null; // linked transaction if any
+  date: string;
+  created_at: string;
+}

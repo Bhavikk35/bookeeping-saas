@@ -10,6 +10,8 @@ import {
   TransactionType,
   InventoryItem,
   InventorySummary,
+  Customer,
+  CustomerLedgerEntry,
 } from '../types';
 import { createClient } from '@supabase/supabase-js';
 import fs from 'fs';
@@ -44,6 +46,8 @@ class InMemoryStore {
   transactions: Map<string, Transaction> = new Map();
   syncLogs: Map<string, SyncLog> = new Map();
   inventoryItems: Map<string, InventoryItem> = new Map();
+  customers: Map<string, Customer> = new Map();
+  customerLedger: Map<string, CustomerLedgerEntry> = new Map();
 
   constructor() {
     this.seedDemoData();
@@ -62,6 +66,8 @@ class InMemoryStore {
         transactions: Array.from(this.transactions.entries()),
         syncLogs: Array.from(this.syncLogs.entries()),
         inventoryItems: Array.from(this.inventoryItems.entries()),
+        customers: Array.from(this.customers.entries()),
+        customerLedger: Array.from(this.customerLedger.entries()),
       };
       fs.writeFileSync(TMP_STORE_PATH, JSON.stringify(data), 'utf-8');
     } catch (e) {}
@@ -81,6 +87,8 @@ class InMemoryStore {
         if (data.transactions) this.transactions = new Map(data.transactions);
         if (data.syncLogs) this.syncLogs = new Map(data.syncLogs);
         if (data.inventoryItems) this.inventoryItems = new Map(data.inventoryItems);
+        if (data.customers) this.customers = new Map(data.customers);
+        if (data.customerLedger) this.customerLedger = new Map(data.customerLedger);
       }
     } catch (e) {}
   }
@@ -711,6 +719,30 @@ export async function addTransaction(
   const txId = `tx_${crypto.randomUUID()}`;
   const now = new Date().toISOString();
 
+  // For sale transactions: snapshot the inventory cost_price → unit_cost_at_sale
+  // This must happen BEFORE we deduct stock so we read the correct price.
+  let unitCostAtSale: number | null = null;
+  if (txData.transaction_type === 'sale' || txData.transaction_type === 'money_received') {
+    if (txData.item) {
+      const items = Array.from(inMemoryDB.inventoryItems.values()).filter(
+        (i) => i.business_id === txData.business_id
+      );
+      const cleanQuery = txData.item.trim().toLowerCase();
+      const matched =
+        items.find((i) => i.item_name.trim().toLowerCase() === cleanQuery) ||
+        items.find(
+          (i) =>
+            i.item_name.toLowerCase().includes(cleanQuery) ||
+            cleanQuery.includes(i.item_name.toLowerCase())
+        );
+      if (matched && matched.cost_price != null && matched.cost_price > 0) {
+        unitCostAtSale = matched.cost_price;
+      }
+    }
+  }
+
+  const finalTxData = { ...txData, unit_cost_at_sale: unitCostAtSale };
+
   // Runs no matter which storage path saved the transaction, so inventory
   // never gets skipped when Supabase is configured and succeeds. Awaited
   // (not fire-and-forget) because serverless functions can freeze right
@@ -738,7 +770,7 @@ export async function addTransaction(
     try {
       const { data: tx, error } = await supabase
         .from('transactions')
-        .insert({ ...txData })
+        .insert({ ...finalTxData })
         .select()
         .single();
       if (!error && tx) {
@@ -753,7 +785,7 @@ export async function addTransaction(
 
   const tx: Transaction = {
     id: txId,
-    ...txData,
+    ...finalTxData,
     created_at: now,
     updated_at: now,
   };
@@ -785,6 +817,7 @@ export async function addOrUpdateInventoryItem(
           item_name: data.item_name,
           sku: data.sku || null,
           unit_price: data.unit_price || 0,
+          cost_price: data.cost_price ?? null,
           quantity_in_stock: data.quantity_in_stock || 0,
           min_stock_alert: data.min_stock_alert || 5,
           category: data.category || 'General',
@@ -812,6 +845,7 @@ export async function addOrUpdateInventoryItem(
     item_name: data.item_name,
     sku: data.sku || existing?.sku || null,
     unit_price: data.unit_price,
+    cost_price: data.cost_price ?? existing?.cost_price ?? 0,
     quantity_in_stock: data.quantity_in_stock,
     min_stock_alert: data.min_stock_alert ?? existing?.min_stock_alert ?? 5,
     category: data.category || existing?.category || 'General',
@@ -942,14 +976,18 @@ export async function restockOrUpdateInventoryStock(
   }
 
   const qty = Math.max(1, restockQuantity);
-  const calculatedPrice = amount && amount > 0 ? Math.round(amount / qty) : 20;
+  // cost per unit derived from the restock purchase amount
+  const costPerUnit = amount && amount > 0 ? Math.round((amount / qty) * 100) / 100 : 0;
 
   if (matchedItem) {
     const newStock = matchedItem.quantity_in_stock + qty;
     const updated = await addOrUpdateInventoryItem({
       ...matchedItem,
       quantity_in_stock: newStock,
-      unit_price: matchedItem.unit_price > 0 ? matchedItem.unit_price : calculatedPrice,
+      // cost_price: update with new restock cost (weighted average could be used in future)
+      cost_price: costPerUnit > 0 ? costPerUnit : (matchedItem.cost_price ?? 0),
+      // unit_price (selling price) is never overwritten by a purchase — only set if still 0
+      unit_price: matchedItem.unit_price > 0 ? matchedItem.unit_price : costPerUnit,
       expiry_date: expiryDate ?? matchedItem.expiry_date,
     });
     return { item: updated, newStock };
@@ -957,7 +995,8 @@ export async function restockOrUpdateInventoryStock(
     const newItem = await addOrUpdateInventoryItem({
       business_id: businessId,
       item_name: cleanName,
-      unit_price: calculatedPrice,
+      cost_price: costPerUnit,
+      unit_price: costPerUnit, // selling price defaults to cost until manually updated
       quantity_in_stock: qty,
       min_stock_alert: 5,
       category: category || 'Food & Retail',
@@ -1187,3 +1226,265 @@ export async function logSyncStatus(
   inMemoryDB.syncLogs.set(logId, log);
   inMemoryDB.saveToDisk();
 }
+
+// ── CUSTOMER (UDHAAR) MANAGEMENT ─────────────────────────────────────────────
+
+export async function findOrCreateCustomer(
+  businessId: string,
+  name: string,
+  phone?: string
+): Promise<{ customer: Customer; isNew: boolean; existingBalance: number }> {
+  const cleanName = name.trim();
+  const now = new Date().toISOString();
+
+  // Fuzzy match: exact first, then substring
+  const existing = Array.from(inMemoryDB.customers.values()).find(
+    (c) =>
+      c.business_id === businessId &&
+      (c.name.toLowerCase() === cleanName.toLowerCase() ||
+        c.name.toLowerCase().includes(cleanName.toLowerCase()) ||
+        cleanName.toLowerCase().includes(c.name.toLowerCase()))
+  );
+
+  if (existing) {
+    return { customer: existing, isNew: false, existingBalance: existing.balance_due };
+  }
+
+  const customer: Customer = {
+    id: crypto.randomUUID(),
+    business_id: businessId,
+    name: cleanName,
+    phone: phone || null,
+    balance_due: 0,
+    total_udhaar_given: 0,
+    total_paid_back: 0,
+    oldest_unpaid_since: null,
+    created_at: now,
+    updated_at: now,
+  };
+
+  inMemoryDB.customers.set(customer.id, customer);
+  inMemoryDB.saveToDisk();
+
+  return { customer, isNew: true, existingBalance: 0 };
+}
+
+export async function getCustomersByBusiness(businessId: string): Promise<Customer[]> {
+  return Array.from(inMemoryDB.customers.values())
+    .filter((c) => c.business_id === businessId)
+    .sort((a, b) => b.balance_due - a.balance_due);
+}
+
+export async function getCustomerById(customerId: string): Promise<Customer | null> {
+  return inMemoryDB.customers.get(customerId) || null;
+}
+
+export async function recordUdhaar(
+  businessId: string,
+  customerId: string,
+  amount: number,
+  description?: string,
+  transactionId?: string
+): Promise<{ customer: Customer; ledgerEntry: CustomerLedgerEntry }> {
+  const now = new Date().toISOString();
+  const todayStr = now.split('T')[0];
+  const customer = inMemoryDB.customers.get(customerId);
+  if (!customer) throw new Error(`Customer ${customerId} not found`);
+
+  const entry: CustomerLedgerEntry = {
+    id: crypto.randomUUID(),
+    customer_id: customerId,
+    business_id: businessId,
+    type: 'udhaar',
+    amount,
+    description: description || null,
+    transaction_id: transactionId || null,
+    date: todayStr,
+    created_at: now,
+  };
+
+  const updatedCustomer: Customer = {
+    ...customer,
+    balance_due: customer.balance_due + amount,
+    total_udhaar_given: customer.total_udhaar_given + amount,
+    oldest_unpaid_since: customer.oldest_unpaid_since || todayStr,
+    updated_at: now,
+  };
+
+  inMemoryDB.customerLedger.set(entry.id, entry);
+  inMemoryDB.customers.set(customerId, updatedCustomer);
+  inMemoryDB.saveToDisk();
+
+  return { customer: updatedCustomer, ledgerEntry: entry };
+}
+
+export async function recordPayment(
+  businessId: string,
+  customerId: string,
+  amount: number,
+  description?: string
+): Promise<{ customer: Customer; ledgerEntry: CustomerLedgerEntry; cleared: boolean; overpayment: number }> {
+  const now = new Date().toISOString();
+  const todayStr = now.split('T')[0];
+  const customer = inMemoryDB.customers.get(customerId);
+  if (!customer) throw new Error(`Customer ${customerId} not found`);
+
+  // Guard against overpayment
+  const payAmount = Math.min(amount, customer.balance_due);
+  const overpayment = amount - payAmount;
+
+  const entry: CustomerLedgerEntry = {
+    id: crypto.randomUUID(),
+    customer_id: customerId,
+    business_id: businessId,
+    type: 'payment',
+    amount: payAmount,
+    description: description || null,
+    transaction_id: null,
+    date: todayStr,
+    created_at: now,
+  };
+
+  const newBalance = Math.max(0, customer.balance_due - payAmount);
+  const cleared = newBalance === 0;
+
+  const updatedCustomer: Customer = {
+    ...customer,
+    balance_due: newBalance,
+    total_paid_back: customer.total_paid_back + payAmount,
+    oldest_unpaid_since: cleared ? null : customer.oldest_unpaid_since,
+    updated_at: now,
+  };
+
+  inMemoryDB.customerLedger.set(entry.id, entry);
+  inMemoryDB.customers.set(customerId, updatedCustomer);
+  inMemoryDB.saveToDisk();
+
+  return { customer: updatedCustomer, ledgerEntry: entry, cleared, overpayment };
+}
+
+export async function getCustomerLedger(
+  customerId: string,
+  businessId: string
+): Promise<CustomerLedgerEntry[]> {
+  return Array.from(inMemoryDB.customerLedger.values())
+    .filter((e) => e.customer_id === customerId && e.business_id === businessId)
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+}
+
+// ── PROFIT MARGIN REPORTING ──────────────────────────────────────────────────
+
+export type ProfitPeriod = 'today' | 'week' | 'month' | 'all';
+
+export interface ProductProfitRow {
+  item: string;
+  revenue: number;
+  totalCost: number;
+  profit: number;
+  marginPct: number | null; // null = cost data unavailable
+  unitsSold: number;
+  hasCostData: boolean;
+}
+
+export interface ProfitReport {
+  period: ProfitPeriod;
+  totalRevenue: number;
+  totalCost: number;
+  totalProfit: number;
+  overallMarginPct: number | null;
+  hasCostData: boolean;
+  topByProfit: ProductProfitRow[];
+  bottomByMargin: ProductProfitRow[];
+  allProducts: ProductProfitRow[];
+}
+
+export async function getProfitReport(
+  businessId: string,
+  period: ProfitPeriod = 'all'
+): Promise<ProfitReport> {
+  const txs = await getBusinessTransactions(businessId);
+  const now = new Date();
+  const todayStr = now.toISOString().split('T')[0];
+
+  const filterTx = (tx: Transaction) => {
+    if (tx.transaction_type !== 'sale') return false;
+    const d = tx.transaction_date;
+    if (period === 'today') return d === todayStr;
+    if (period === 'week') {
+      const weekAgo = new Date(now.getTime() - 7 * 86400000).toISOString().split('T')[0];
+      return d >= weekAgo;
+    }
+    if (period === 'month') {
+      const monthAgo = new Date(now.getTime() - 30 * 86400000).toISOString().split('T')[0];
+      return d >= monthAgo;
+    }
+    return true;
+  };
+
+  const saleTxs = txs.filter(filterTx);
+
+  const productMap: Record<
+    string,
+    { revenue: number; totalCost: number; unitsSold: number; hasCostData: boolean }
+  > = {};
+
+  for (const tx of saleTxs) {
+    const key = tx.item?.trim() || 'Unknown';
+    if (!productMap[key]) {
+      productMap[key] = { revenue: 0, totalCost: 0, unitsSold: 0, hasCostData: false };
+    }
+    const qty = Number(tx.quantity) || 1;
+    const amt = Number(tx.amount) || 0;
+    productMap[key].revenue += amt;
+    productMap[key].unitsSold += qty;
+
+    if (tx.unit_cost_at_sale != null && tx.unit_cost_at_sale > 0) {
+      productMap[key].totalCost += tx.unit_cost_at_sale * qty;
+      productMap[key].hasCostData = true;
+    }
+  }
+
+  const rows: ProductProfitRow[] = Object.entries(productMap).map(([item, d]) => {
+    const profit = d.hasCostData ? d.revenue - d.totalCost : 0;
+    const marginPct =
+      d.hasCostData && d.revenue > 0
+        ? Math.round((profit / d.revenue) * 10000) / 100
+        : null;
+    return {
+      item,
+      revenue: d.revenue,
+      totalCost: d.totalCost,
+      profit,
+      marginPct,
+      unitsSold: d.unitsSold,
+      hasCostData: d.hasCostData,
+    };
+  });
+
+  const totalRevenue = rows.reduce((s, r) => s + r.revenue, 0);
+  const totalCost = rows.reduce((s, r) => s + r.totalCost, 0);
+  const totalProfit = rows.reduce((s, r) => s + r.profit, 0);
+  const hasCostData = rows.some((r) => r.hasCostData);
+  const overallMarginPct =
+    hasCostData && totalRevenue > 0
+      ? Math.round((totalProfit / totalRevenue) * 10000) / 100
+      : null;
+
+  const sorted = [...rows].sort((a, b) => b.profit - a.profit);
+  const topByProfit = sorted.slice(0, 5);
+  const withMargin = rows.filter((r) => r.marginPct !== null).sort((a, b) => (a.marginPct ?? 0) - (b.marginPct ?? 0));
+  const bottomByMargin = withMargin.slice(0, 5);
+
+  return {
+    period,
+    totalRevenue,
+    totalCost,
+    totalProfit,
+    overallMarginPct,
+    hasCostData,
+    topByProfit,
+    bottomByMargin,
+    allProducts: rows,
+  };
+}
+

@@ -8,6 +8,11 @@ import {
   getBusinessFinancialMetrics,
   getBusinessInventory,
   getInventorySummary,
+  getProfitReport,
+  getCustomersByBusiness,
+  findOrCreateCustomer,
+  recordUdhaar,
+  recordPayment,
   setTelegramConnectionPending,
   inMemoryDB,
 } from '../db';
@@ -397,6 +402,117 @@ export async function processTelegramWebhookUpdate(update: any): Promise<{ succe
     }
   }
 
+  // 1.8 Handle Profit / Margin Commands (/profit, /margin, "profit today", "margin this week")
+  const profitPeriodMatch =
+    lowerText.includes('today') ? 'today'
+    : lowerText.includes('week') ? 'week'
+    : lowerText.includes('month') ? 'month'
+    : 'all';
+
+  if (
+    lowerText.startsWith('/profit') ||
+    lowerText.startsWith('/margin') ||
+    lowerText.includes('profit') ||
+    lowerText.includes('margin') ||
+    lowerText.includes('earning')
+  ) {
+    let connection = await getTelegramConnectionByChatId(chatId);
+    if (!connection) {
+      const targetBiz = resolveActiveTenantWorkspace();
+      connection = await createTelegramConnection(targetBiz.id, userId, chatId, username);
+    }
+    if (connection) {
+      const biz = (await getBusiness(connection.business_id)) || resolveActiveTenantWorkspace();
+      const cur = biz.currency === 'USD' ? '$' : '₹';
+      const report = await getProfitReport(biz.id, profitPeriodMatch as 'today' | 'week' | 'month' | 'all');
+
+      const periodLabel = profitPeriodMatch === 'today' ? 'Today'
+        : profitPeriodMatch === 'week' ? 'This Week'
+        : profitPeriodMatch === 'month' ? 'This Month'
+        : 'All Time';
+
+      const marginLine = report.overallMarginPct !== null
+        ? `📊 <b>Overall Margin:</b> ${report.overallMarginPct}%`
+        : `📊 <b>Overall Margin:</b> <i>cost data unavailable — load stock with purchase cost first</i>`;
+
+      const topLines = report.topByProfit.length
+        ? report.topByProfit.map((r, i) => {
+            const m = r.marginPct !== null ? ` (${r.marginPct}% margin)` : ' (no cost data)';
+            return `${i + 1}. <b>${r.item}</b>: ${cur}${r.hasCostData ? r.profit.toLocaleString('en-IN') : '—'} profit${m}`;
+          }).join('\n')
+        : 'No sales recorded in this period.';
+
+      const profitMsg =
+        `📈 <b>Profit Report — ${periodLabel}</b>\n` +
+        `<i>Workspace: ${biz.business_name}</i>\n\n` +
+        `💰 <b>Revenue:</b> ${cur}${report.totalRevenue.toLocaleString('en-IN')}\n` +
+        (report.hasCostData
+          ? `🛒 <b>Total Cost:</b> ${cur}${report.totalCost.toLocaleString('en-IN')}\n` +
+            `✅ <b>Gross Profit:</b> ${cur}${report.totalProfit.toLocaleString('en-IN')}\n`
+          : '') +
+        `${marginLine}\n\n` +
+        `🏆 <b>Top Products by Profit:</b>\n${topLines}\n\n` +
+        `🌐 <i>Full breakdown at https://bookeeping-sas.netlify.app/dashboard/insights</i>`;
+
+      await sendTelegramMessage(chatId, profitMsg);
+      return { success: true, responseMessage: 'Sent profit report to Telegram.' };
+    }
+  }
+
+  // 1.9 Handle Udhaar / Credit Commands (/udhaar, /khata, "who owes", "Rahul owes how much")
+  if (
+    lowerText.startsWith('/udhaar') ||
+    lowerText.startsWith('/khata') ||
+    lowerText.startsWith('/credit') ||
+    lowerText.includes('udhaar') ||
+    lowerText.includes('who owes') ||
+    lowerText.includes('owes me') ||
+    lowerText.includes('pending payment') ||
+    (lowerText.includes('owes') && lowerText.includes('how much'))
+  ) {
+    let connection = await getTelegramConnectionByChatId(chatId);
+    if (!connection) {
+      const targetBiz = resolveActiveTenantWorkspace();
+      connection = await createTelegramConnection(targetBiz.id, userId, chatId, username);
+    }
+    if (connection) {
+      const biz = (await getBusiness(connection.business_id)) || resolveActiveTenantWorkspace();
+      const cur = biz.currency === 'USD' ? '$' : '₹';
+      const customers = await getCustomersByBusiness(biz.id);
+      const owing = customers.filter((c) => c.balance_due > 0);
+
+      if (owing.length === 0) {
+        await sendTelegramMessage(
+          chatId,
+          `✅ <b>Udhaar Status</b>\n<i>${biz.business_name}</i>\n\nNo pending udhaar! All customers have cleared their dues.\n\n🌐 <i>Manage at https://bookeeping-sas.netlify.app/dashboard/khata/customers</i>`
+        );
+        return { success: true, responseMessage: 'Sent clear udhaar status.' };
+      }
+
+      const total = owing.reduce((s, c) => s + c.balance_due, 0);
+      const now = new Date();
+      const customerLines = owing.slice(0, 10).map((c, i) => {
+        const days = c.oldest_unpaid_since
+          ? Math.floor((now.getTime() - new Date(c.oldest_unpaid_since).getTime()) / 86400000)
+          : null;
+        const overdueTag = days !== null && days >= 30 ? ' 🚨' : '';
+        return `${i + 1}. <b>${c.name}</b>: ${cur}${c.balance_due.toLocaleString('en-IN')}${overdueTag}`;
+      }).join('\n');
+
+      const udhaarMsg =
+        `💳 <b>Udhaar (Credit) Report</b>\n` +
+        `<i>Workspace: ${biz.business_name}</i>\n\n` +
+        `${customerLines}\n\n` +
+        `───────────────\n` +
+        `💰 <b>Total Outstanding:</b> ${cur}${total.toLocaleString('en-IN')}\n` +
+        `👥 <b>Customers with Dues:</b> ${owing.length}\n\n` +
+        `🌐 <i>Record payments at https://bookeeping-sas.netlify.app/dashboard/khata/customers</i>`;
+
+      await sendTelegramMessage(chatId, udhaarMsg);
+      return { success: true, responseMessage: 'Sent udhaar report to Telegram.' };
+    }
+  }
+
   // 2. Routing Normal Telegram Messages to Active Connected Tenant Business
   let connection = await getTelegramConnectionByChatId(chatId);
   if (!connection) {
@@ -514,6 +630,34 @@ export async function processTelegramWebhookUpdate(update: any): Promise<{ succe
     console.error('Async Google Sheet sync failed:', e)
   );
 
+  // 6b. Udhaar auto-tracking: if payment is pending and customer name is present,
+  //     record the udhaar against the customer ledger (warn-only if already has balance)
+  let udhaarWarningLine = '';
+  if (
+    (savedTx.payment_status === 'pending' || savedTx.payment_status === 'partial') &&
+    savedTx.customer_name
+  ) {
+    try {
+      const { customer, isNew, existingBalance } = await findOrCreateCustomer(
+        business.id,
+        savedTx.customer_name
+      );
+      await recordUdhaar(
+        business.id,
+        customer.id,
+        savedTx.amount,
+        savedTx.item,
+        savedTx.id
+      );
+      if (!isNew && existingBalance > 0) {
+        const cur = business.currency === 'USD' ? '$' : '₹';
+        udhaarWarningLine = `\n⚠️ <b>Note:</b> ${customer.name} already had ${cur}${existingBalance.toLocaleString('en-IN')} pending. New total: ${cur}${(existingBalance + savedTx.amount).toLocaleString('en-IN')}`;
+      }
+    } catch (e) {
+      console.error('[bot] Udhaar auto-record failed:', e);
+    }
+  }
+
   // 7. Confirmation Response to Telegram User
   const typeEmoji =
     savedTx.transaction_type === 'sale'
@@ -529,8 +673,9 @@ export async function processTelegramWebhookUpdate(update: any): Promise<{ succe
     `• <b>Item:</b> ${savedTx.item}\n` +
     `• <b>Amount:</b> ${savedTx.currency === 'INR' ? '₹' : '$'}${savedTx.amount}\n` +
     `• <b>Category:</b> ${savedTx.category}\n` +
-    `• <b>Workspace:</b> ${business.business_name}\n\n` +
-    `<i>Synced to Auto-Ledger & Web Dashboard in real-time. Instant Excel (.xlsx) & PDF downloads available on dashboard.</i>`;
+    `• <b>Workspace:</b> ${business.business_name}\n` +
+    udhaarWarningLine +
+    `\n\n<i>Synced to Auto-Ledger & Web Dashboard in real-time. Instant Excel (.xlsx) & PDF downloads available on dashboard.</i>`;
 
   await sendTelegramMessage(chatId, confirmMessage);
 

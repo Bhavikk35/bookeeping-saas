@@ -1,169 +1,347 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useTenant } from '@/components/providers/TenantContext';
 import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  PieChart,
-  Pie,
-  Cell,
-  LineChart,
-  Line,
-} from 'recharts';
-import { TrendingUp, BarChart3, PieChart as PieIcon, Award, Sparkles, ChevronRight, AlertCircle } from 'lucide-react';
+  TrendingUp,
+  TrendingDown,
+  DollarSign,
+  BarChart2,
+  AlertCircle,
+  RefreshCw,
+} from 'lucide-react';
+
+type ProfitPeriod = 'today' | 'week' | 'month' | 'all';
+
+interface ProductProfitRow {
+  item: string;
+  revenue: number;
+  totalCost: number;
+  profit: number;
+  marginPct: number | null;
+  unitsSold: number;
+  hasCostData: boolean;
+}
+
+interface ProfitReport {
+  period: ProfitPeriod;
+  totalRevenue: number;
+  totalCost: number;
+  totalProfit: number;
+  overallMarginPct: number | null;
+  hasCostData: boolean;
+  topByProfit: ProductProfitRow[];
+  bottomByMargin: ProductProfitRow[];
+  allProducts: ProductProfitRow[];
+}
+
+const PERIOD_LABELS: Record<ProfitPeriod, string> = {
+  today: 'Today',
+  week: 'This Week',
+  month: 'This Month',
+  all: 'All Time',
+};
+
+function fmt(n: number) {
+  return '₹' + n.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+}
+
+function MarginBadge({ pct, hasCostData }: { pct: number | null; hasCostData: boolean }) {
+  if (!hasCostData) {
+    return (
+      <span className="text-xs text-gray-400 italic">cost data unavailable</span>
+    );
+  }
+  const color =
+    pct === null ? 'text-gray-400' : pct >= 20 ? 'text-green-600' : pct >= 0 ? 'text-yellow-600' : 'text-red-600';
+  return <span className={`font-semibold ${color}`}>{pct !== null ? `${pct}%` : '—'}</span>;
+}
 
 export default function InsightsPage() {
   const { currentBusiness } = useTenant();
-  const [metrics, setMetrics] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [period, setPeriod] = useState<ProfitPeriod>('month');
+  const [report, setReport] = useState<ProfitReport | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     if (!currentBusiness?.id) return;
     setLoading(true);
-    fetch(`/api/transactions/list?businessId=${currentBusiness.id}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success) setMetrics(data.metrics);
-      })
-      .finally(() => setLoading(false));
-  }, [currentBusiness?.id]);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/profit?business_id=${currentBusiness.id}&period=${period}`
+      );
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to load');
+      setReport(json.report);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [currentBusiness?.id, period]);
 
-  const symbol = '₹';
+  useEffect(() => {
+    load();
+  }, [load]);
 
-  const trendData = [
-    { name: 'Revenue', amount: metrics?.totalSales || 18450, fill: '#168A55' },
-    { name: 'Expenses', amount: metrics?.totalExpenses || 7200, fill: '#475569' },
-    { name: 'Net Flow', amount: Math.max(0, metrics?.netCashFlow || 11250), fill: '#0D5C3A' },
-  ];
-
-  const COLORS = ['#168A55', '#0D5C3A', '#D97706', '#0284C7', '#7C3AED'];
+  const cur = '₹';
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-black text-[#17211C] tracking-tight">Business Insights</h2>
-        <p className="text-xs text-[#66736C] mt-0.5">
-          Simple financial trends & analytics for {currentBusiness?.business_name || 'My Business Workspace'}
-        </p>
+    <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            <BarChart2 className="w-6 h-6 text-indigo-600" />
+            Profit Margin Insights
+          </h1>
+          <p className="text-sm text-gray-500 mt-1">
+            See which products are actually making you money
+          </p>
+        </div>
+        <button
+          onClick={load}
+          disabled={loading}
+          className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+        >
+          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          Refresh
+        </button>
       </div>
 
-      {/* Basic Insights Charts Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Revenue vs Expenses Comparison */}
-        <div className="bg-white border border-[#E2E8E4] rounded-2xl p-6 shadow-xs space-y-4">
-          <div className="flex items-center gap-2 pb-2 border-b border-[#E2E8E4]">
-            <div className="p-2 rounded-xl bg-[#EAF7F0] text-[#168A55]">
-              <BarChart3 className="w-4 h-4" />
-            </div>
-            <div>
-              <h3 className="text-sm font-extrabold text-[#17211C]">Revenue vs Expenses</h3>
-              <p className="text-[11px] text-[#66736C]">Total money collected vs total expenses</p>
-            </div>
-          </div>
-
-          <div className="h-64 w-full pt-2">
-            {loading ? (
-              <div className="h-full flex items-center justify-center text-xs text-[#66736C]">Loading insights...</div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={trendData}>
-                  <XAxis dataKey="name" stroke="#66736C" fontSize={11} />
-                  <YAxis stroke="#66736C" fontSize={11} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#FFFFFF', borderColor: '#E2E8E4', borderRadius: '12px', fontSize: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}
-                    formatter={(value: any) => [`${symbol}${value.toLocaleString('en-IN')}`, 'Amount']}
-                  />
-                  <Bar dataKey="amount" radius={[8, 8, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </div>
-
-        {/* Expense Breakdown */}
-        <div className="bg-white border border-[#E2E8E4] rounded-2xl p-6 shadow-xs space-y-4">
-          <div className="flex items-center gap-2 pb-2 border-b border-[#E2E8E4]">
-            <div className="p-2 rounded-xl bg-slate-100 text-[#17211C]">
-              <PieIcon className="w-4 h-4" />
-            </div>
-            <div>
-              <h3 className="text-sm font-extrabold text-[#17211C]">Expense Categories</h3>
-              <p className="text-[11px] text-[#66736C]">Spending distribution</p>
-            </div>
-          </div>
-
-          <div className="h-64 w-full flex items-center justify-center">
-            {loading || !metrics?.categoryBreakdown || metrics.categoryBreakdown.length === 0 ? (
-              <div className="text-xs text-[#66736C]">No category expenses recorded yet.</div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={metrics.categoryBreakdown}
-                    dataKey="amount"
-                    nameKey="category"
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={80}
-                    label={(entry: any) => `${entry.category || entry.name}`}
-                  >
-                    {metrics.categoryBreakdown.map((entry: any, index: number) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#FFFFFF', borderColor: '#E2E8E4', borderRadius: '12px', fontSize: '12px' }}
-                    formatter={(value: any) => [`${symbol}${value.toLocaleString('en-IN')}`, 'Spent']}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Optional Advanced Insights CTA Section */}
-      <div className="bg-white border border-[#E2E8E4] rounded-2xl p-6 shadow-xs space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#EAF7F0] border border-[#168A55]/20 text-[#168A55] flex items-center justify-center">
-              <Sparkles className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-base font-extrabold text-[#17211C]">ADVANCED INSIGHTS</h3>
-              <p className="text-xs text-[#66736C]">Deep product margins, top customers, and growth projections</p>
-            </div>
-          </div>
-
+      {/* Period Filter */}
+      <div className="flex gap-2 flex-wrap">
+        {(Object.keys(PERIOD_LABELS) as ProfitPeriod[]).map((p) => (
           <button
-            onClick={() => setShowAdvanced(!showAdvanced)}
-            className="px-4 py-2.5 bg-[#EAF7F0] hover:bg-[#168A55] text-[#168A55] hover:text-white font-bold text-xs rounded-xl transition-all border border-[#168A55]/20 inline-flex items-center gap-1.5 shrink-0"
+            key={p}
+            onClick={() => setPeriod(p)}
+            className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+              period === p
+                ? 'bg-indigo-600 text-white'
+                : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+            }`}
           >
-            {showAdvanced ? 'Hide Advanced Insights' : 'Explore Advanced Insights →'}
+            {PERIOD_LABELS[p]}
           </button>
-        </div>
+        ))}
+      </div>
 
-        {showAdvanced && (
-          <div className="pt-4 border-t border-[#E2E8E4] grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="p-4 bg-[#F7F9F8] border border-[#E2E8E4] rounded-xl space-y-2">
-              <h4 className="text-xs font-bold text-[#17211C]">Gross Margin & COGS</h4>
-              <p className="text-xs text-[#66736C]">
-                Configure product purchase cost to automatically calculate gross profit percentage across sales.
-              </p>
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          {error}
+        </div>
+      )}
+
+      {loading && !report && (
+        <div className="flex items-center justify-center py-16 text-gray-400">
+          <RefreshCw className="w-6 h-6 animate-spin mr-2" />
+          Loading profit data…
+        </div>
+      )}
+
+      {report && (
+        <>
+          {/* No cost data banner */}
+          {!report.hasCostData && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold text-amber-800">Cost data unavailable</p>
+                <p className="text-sm text-amber-700 mt-1">
+                  To see profit margins, first load stock with a purchase cost in the{' '}
+                  <a href="/dashboard/inventory" className="underline">Inventory</a> tab. When you record a
+                  sale after loading stock, the cost will be snapshotted automatically.
+                </p>
+              </div>
             </div>
-            <div className="p-4 bg-[#F7F9F8] border border-[#E2E8E4] rounded-xl space-y-2">
-              <h4 className="text-xs font-bold text-[#17211C]">Customer Retention</h4>
-              <p className="text-xs text-[#66736C]">
-                Track repeat customers and highest revenue contributors over monthly cycles.
-              </p>
+          )}
+
+          {/* KPI Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <KpiCard
+              label="Revenue"
+              value={fmt(report.totalRevenue)}
+              icon={<DollarSign className="w-5 h-5 text-blue-500" />}
+              bg="bg-blue-50"
+            />
+            <KpiCard
+              label="Total Cost"
+              value={report.hasCostData ? fmt(report.totalCost) : '—'}
+              icon={<TrendingDown className="w-5 h-5 text-red-500" />}
+              bg="bg-red-50"
+              sub={!report.hasCostData ? 'cost data unavailable' : undefined}
+            />
+            <KpiCard
+              label="Gross Profit"
+              value={report.hasCostData ? fmt(report.totalProfit) : '—'}
+              icon={<TrendingUp className="w-5 h-5 text-green-500" />}
+              bg="bg-green-50"
+              sub={!report.hasCostData ? 'cost data unavailable' : undefined}
+              highlight={report.hasCostData && report.totalProfit > 0}
+            />
+            <KpiCard
+              label="Overall Margin"
+              value={
+                report.overallMarginPct !== null
+                  ? `${report.overallMarginPct}%`
+                  : '—'
+              }
+              icon={<BarChart2 className="w-5 h-5 text-indigo-500" />}
+              bg="bg-indigo-50"
+              sub={report.overallMarginPct === null ? 'cost data unavailable' : undefined}
+              highlight={report.overallMarginPct !== null && report.overallMarginPct > 0}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Top 5 by Profit */}
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+              <h2 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-green-500" />
+                Top 5 Products by Profit
+              </h2>
+              {report.topByProfit.length === 0 ? (
+                <p className="text-sm text-gray-400 py-4 text-center">No sales in this period</p>
+              ) : (
+                <div className="space-y-3">
+                  {report.topByProfit.map((row, i) => (
+                    <ProductRow key={row.item} rank={i + 1} row={row} />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Bottom 5 by Margin */}
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+              <h2 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                <TrendingDown className="w-4 h-4 text-red-500" />
+                Bottom 5 Products by Margin %
+              </h2>
+              {report.bottomByMargin.length === 0 ? (
+                <p className="text-sm text-gray-400 py-4 text-center">
+                  {report.hasCostData
+                    ? 'No products with margin data'
+                    : 'Load stock with cost to see margins'}
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {report.bottomByMargin.map((row, i) => (
+                    <ProductRow key={row.item} rank={i + 1} row={row} showRed />
+                  ))}
+                </div>
+              )}
             </div>
           </div>
+
+          {/* Full Table */}
+          {report.allProducts.length > 0 && (
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              <div className="px-5 py-4 border-b border-gray-100">
+                <h2 className="font-semibold text-gray-800">All Products — {PERIOD_LABELS[period]}</h2>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gray-50 text-gray-500 uppercase text-xs">
+                    <tr>
+                      <th className="px-4 py-3 text-left">Product</th>
+                      <th className="px-4 py-3 text-right">Units Sold</th>
+                      <th className="px-4 py-3 text-right">Revenue</th>
+                      <th className="px-4 py-3 text-right">Cost</th>
+                      <th className="px-4 py-3 text-right">Profit</th>
+                      <th className="px-4 py-3 text-right">Margin %</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {report.allProducts
+                      .sort((a, b) => b.revenue - a.revenue)
+                      .map((row) => (
+                        <tr key={row.item} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 font-medium text-gray-900">{row.item}</td>
+                          <td className="px-4 py-3 text-right text-gray-600">{row.unitsSold}</td>
+                          <td className="px-4 py-3 text-right text-gray-900">{fmt(row.revenue)}</td>
+                          <td className="px-4 py-3 text-right text-gray-600">
+                            {row.hasCostData ? fmt(row.totalCost) : <span className="text-gray-300 italic text-xs">unavailable</span>}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            {row.hasCostData ? (
+                              <span className={row.profit >= 0 ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>
+                                {fmt(row.profit)}
+                              </span>
+                            ) : (
+                              <span className="text-gray-300 italic text-xs">unavailable</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <MarginBadge pct={row.marginPct} hasCostData={row.hasCostData} />
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function KpiCard({
+  label,
+  value,
+  icon,
+  bg,
+  sub,
+  highlight,
+}: {
+  label: string;
+  value: string;
+  icon: React.ReactNode;
+  bg: string;
+  sub?: string;
+  highlight?: boolean;
+}) {
+  return (
+    <div className={`rounded-xl border border-gray-200 shadow-sm p-4 ${highlight ? 'ring-2 ring-green-300' : ''}`}>
+      <div className="flex items-center gap-2 mb-2">
+        <div className={`p-2 rounded-lg ${bg}`}>{icon}</div>
+        <span className="text-xs text-gray-500 uppercase tracking-wide">{label}</span>
+      </div>
+      <div className="text-2xl font-bold text-gray-900">{value}</div>
+      {sub && <div className="text-xs text-gray-400 italic mt-1">{sub}</div>}
+    </div>
+  );
+}
+
+function ProductRow({
+  rank,
+  row,
+  showRed,
+}: {
+  rank: number;
+  row: ProductProfitRow;
+  showRed?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="text-gray-400 text-xs w-4 shrink-0">{rank}.</span>
+        <span className="font-medium text-gray-800 truncate">{row.item}</span>
+      </div>
+      <div className="flex items-center gap-3 shrink-0 text-sm">
+        {row.hasCostData ? (
+          <>
+            <span className={showRed ? 'text-red-600 font-semibold' : 'text-green-600 font-semibold'}>
+              {fmt(row.profit)}
+            </span>
+            <MarginBadge pct={row.marginPct} hasCostData={row.hasCostData} />
+          </>
+        ) : (
+          <span className="text-xs text-gray-400 italic">cost data unavailable</span>
         )}
       </div>
     </div>

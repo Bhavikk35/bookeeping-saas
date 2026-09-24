@@ -22,6 +22,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Package,
+  Users,
 } from 'lucide-react';
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
@@ -40,6 +41,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Inventory', href: '/dashboard/inventory', icon: Package },
     { name: 'Khata', href: '/dashboard/khata', icon: BookOpen },
+    { name: 'Udhaar', href: '/dashboard/khata/customers', icon: Users },
     { name: 'Telegram', href: '/dashboard/telegram', icon: Send },
     { name: 'Insights', href: '/dashboard/insights', icon: TrendingUp },
     { name: 'Data & Reports', href: '/dashboard/reports', icon: FileSpreadsheet },
@@ -50,6 +52,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Inventory', href: '/dashboard/inventory', icon: Package },
     { name: 'Khata', href: '/dashboard/khata', icon: BookOpen },
+    { name: 'Udhaar', href: '/dashboard/khata/customers', icon: Users },
     { name: 'Insights', href: '/dashboard/insights', icon: TrendingUp },
     { name: 'Reports', href: '/dashboard/reports', icon: FileSpreadsheet },
     { name: 'Settings', href: '/dashboard/settings', icon: Settings },
