@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 
 export default function InventoryPage() {
-  const { currentBusiness } = useTenant();
+  const { currentBusiness, loading: tenantLoading } = useTenant();
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [summary, setSummary] = useState<InventorySummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -54,6 +54,10 @@ export default function InventoryPage() {
   });
 
   const fetchInventoryData = async () => {
+    // Don't fetch until TenantContext has actually resolved who's logged in —
+    // fetching earlier means querying a fake 'biz_tenant_demo' id, which
+    // shows a real (but wrong) empty state right before the real one loads.
+    if (tenantLoading) return;
     const bizId = currentBusiness?.id || 'biz_tenant_demo';
     setLoading(true);
     try {
@@ -72,7 +76,7 @@ export default function InventoryPage() {
 
   useEffect(() => {
     fetchInventoryData();
-  }, [currentBusiness?.id]);
+  }, [currentBusiness?.id, tenantLoading]);
 
   const handleOpenAddModal = (item?: InventoryItem) => {
     setErrorMsg(null);
